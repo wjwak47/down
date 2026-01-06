@@ -1,0 +1,54 @@
+appId: com.antigravity.videodownloader
+productName: Video Downloader
+directories:
+  output: dist
+  buildResources: build
+files:
+  - "**/*"
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.{js,ts,mjs,cjs}"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+  - "!resources/bin-win/*"
+  - "!resources/bin-mac/*"
+
+extraResources:
+  - from: resources/bin-${os}
+    to: bin
+    filter:
+      - "**/*"
+
+win:
+  executableName: VideoDownloader
+  target: 
+    - target: zip
+      arch:
+        - x64
+  certificateFile: null
+  certificatePassword: null
+  signDlls: false
+  verifyUpdateCodeSignature: false
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.utilities
+  artifactName: ${name}-${version}-${arch}.${ext}
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Video Downloader
+  artifactName: ${name}-${version}-setup.${ext}
+  uninstallDisplayName: Video Downloader
+

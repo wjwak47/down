@@ -1,0 +1,97 @@
+name: Build Mac App
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Download yt-dlp for macOS
+        run: |
+          mkdir -p resources/bin-mac
+          curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o resources/bin-mac/yt-dlp
+          chmod +x resources/bin-mac/yt-dlp
+
+      - name: Download ffmpeg for macOS
+        run: |
+          curl -L https://evermeet.cx/ffmpeg/getrelease/zip -o ffmpeg.zip
+          unzip ffmpeg.zip -d resources/bin-mac/
+          chmod +x resources/bin-mac/ffmpeg
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron app
+        run: npm run build
+
+      - name: Package for macOS
+        run: npm run build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Mac DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoDownloader-Mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          retention-days: 30
+
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Download yt-dlp for Windows
+        run: |
+          New-Item -ItemType Directory -Path resources/bin-win -Force
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "resources/bin-win/yt-dlp.exe"
+        shell: pwsh
+
+      - name: Download ffmpeg for Windows
+        run: |
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-temp
+          $ffmpegExe = Get-ChildItem -Path ffmpeg-temp -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName -Destination "resources/bin-win/ffmpeg.exe"
+        shell: pwsh
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron app
+        run: npm run build
+
+      - name: Package for Windows
+        run: npm run build:win
+
+      - name: Upload Windows Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoDownloader-Windows
+          path: dist/*.zip
+          retention-days: 30

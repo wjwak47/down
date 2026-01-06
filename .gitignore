@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-packager/
+out/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temp
+*.tmp
+temp-*
+
+# Binary files - too large for GitHub (downloaded by CI/CD)
+resources/bin-win/
+resources/bin-mac/
+
