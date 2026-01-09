@@ -299,12 +299,11 @@ class YtDlpService {
     }
 
     async getVideoInfo(url) {
-        if (url.includes('douyin.com')) {
+        if (url && url.includes('douyin.com')) {
             try {
                 return await this.extractDouyinNative(url);
             } catch (e) {
                 console.error('Native extraction failed, falling back to yt-dlp:', e);
-                // Fallback to yt-dlp if native extraction fails
             }
         }
 
@@ -313,8 +312,6 @@ class YtDlpService {
                 '--dump-json',
                 '--no-playlist',
                 // PREVIEW FIX: Strictly force H.264 MP4 via HTTP
-                // 'protocol^=http' ensures we get a direct file link (not HLS/m3u8) which Electron can play directly.
-                // 'vcodec^=avc1' ensures H.264 codec which is universally supported for preview.
                 '-f', 'best[vcodec^=avc1][ext=mp4][protocol^=http]/best[vcodec^=avc1][ext=mp4]/best[ext=mp4]/best',
                 url
             ];
@@ -343,7 +340,7 @@ class YtDlpService {
                         }
 
                         resolve({
-                            id: info.id, // Extract ID for embeds
+                            id: info.id,
                             title: info.title,
                             thumbnail: info.thumbnail,
                             uploader: info.uploader,
@@ -352,7 +349,7 @@ class YtDlpService {
                             webpage_url: info.webpage_url,
                             ext: info.ext,
                             extractor: info.extractor,
-                            headers: info.http_headers // Capture headers from yt-dlp
+                            headers: info.http_headers
                         });
                     } catch (e) {
                         reject(new Error('Failed to parse video info'));
