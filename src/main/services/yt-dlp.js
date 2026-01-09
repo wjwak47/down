@@ -311,9 +311,10 @@ class YtDlpService {
             const args = [
                 '--dump-json',
                 '--no-playlist',
-                // Force progressive MP4 format to ensure compatibility with standard HTML5 video player
-                // Avoids m3u8/HLS streams which cause black screens in simple proxy setup
-                '-f', 'best[ext=mp4][protocol^=http]/best[ext=mp4]/best',
+                // Force H.264 (avc1) codec for macOS QuickTime compatibility
+                // Priority: H.264 MP4 > any MP4 > best available
+                // This ensures preview works on both Windows and Mac
+                '-f', 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1]/best[ext=mp4][protocol^=http]/best[ext=mp4]/best',
                 url
             ];
 
@@ -368,13 +369,28 @@ class YtDlpService {
         const filenameTemplate = options.output || '%(title)s.%(ext)s';
         const outputPath = path.join(downloadDir, filenameTemplate);
 
+        // Determine if we're on macOS to enforce H.264 encoding
+        const isMac = process.platform === 'darwin';
+
+        // Format string: prioritize H.264 (avc1) for macOS compatibility
+        // This ensures videos play in QuickTime and other Mac players
+        const formatString = isMac
+            ? 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1]/best[ext=mp4]/best'
+            : 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best';
+
         const args = [
             url,
-            '--format', 'best',
+            '--format', formatString,
+            '--merge-output-format', 'mp4',  // Always output as MP4
             '--output', outputPath,
             '--no-playlist',
             '--no-check-certificate' // Bypass SSL certificate verification issues
         ];
+
+        // On macOS, add ffmpeg post-processing to ensure H.264 encoding if source is not H.264
+        if (isMac) {
+            args.push('--postprocessor-args', 'ffmpeg:-c:v libx264 -c:a aac -movflags +faststart');
+        }
 
         // Add headers if provided in options
         if (options.headers) {
