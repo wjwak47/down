@@ -369,35 +369,46 @@ class YtDlpService {
         const filenameTemplate = options.output || '%(title)s.%(ext)s';
         const outputPath = path.join(downloadDir, filenameTemplate);
 
-        // Determine if we're on macOS to enforce H.264 encoding
+        // Determine if we're on macOS
         const isMac = process.platform === 'darwin';
 
-        // Fix: Get ffmpeg path explicitly to pass to yt-dlp
-        // This is critical because we moved binaries to custom folders
-
-
-        // Format string: prioritize H.264 (avc1) + AAC audio for maximum compatibility
-        // This ensures videos play in QuickTime and other Mac players
-        // The format selection includes audio explicitly to avoid silent videos
-        // SIMPLIFIED & ROBUST FORMAT STRING
-        // We revert to standard 'best' selection which usually works for 99% of cases.
-        // We rely on --recode-video mp4 to ensure compatibility rather than complex format selectors which fail.
-        const formatString = 'bestvideo+bestaudio/best';
-
+        // EMERGENCY ROLLBACK: Revert to 'best' format
+        // The previous complex format selection forced separate streams which failed to merge.
+        // using 'best' lets yt-dlp choose the best single file (usually 720p/1080p with audio included)
+        // This bypasses the need for complex ffmpeg merging in most cases on Windows.
+        // We only use ffmpeg for explicit recoding on Mac.
         const args = [
             url,
-            '--format', formatString,
-            '--merge-output-format', 'mp4',
+            '--format', 'best',
             '--output', outputPath,
             '--no-playlist',
             '--no-check-certificate',
             '--embed-metadata'
         ];
 
-        // Recode to MP4 ensures h264/aac in most cases if original wasn't
-        args.push('--recode-video', 'mp4');
+        // CRITICAL FIX: Explicitly tell yt-dlp where ffmpeg is
+        let ffmpegPath = '';
+        if (app.isPackaged) {
+            ffmpegPath = path.join(process.resourcesPath, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+        } else {
+            const platformFolder = process.platform === 'win32' ? 'bin-win' : 'bin-mac';
+            ffmpegPath = path.join(app.getAppPath(), 'resources', platformFolder, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+        }
 
-
+        // On Mac, we MUST force MP4 and ensure FFmpeg is found for Recoding
+        if (isMac) {
+            args.push('--recode-video', 'mp4');
+            // Mac binaries are often strictly explicitly located
+            if (fs.existsSync(ffmpegPath)) {
+                console.log('[YtDlp] Using ffmpeg at (Mac):', ffmpegPath);
+                args.push('--ffmpeg-location', ffmpegPath);
+            }
+        }
+        // On Windows, pass ffmpeg location if it exists
+        else if (fs.existsSync(ffmpegPath)) {
+            console.log('[YtDlp] Using ffmpeg at (Win):', ffmpegPath);
+            args.push('--ffmpeg-location', ffmpegPath);
+        }
 
         // Add headers if provided in options
         if (options.headers) {
@@ -415,29 +426,6 @@ class YtDlpService {
         // Use FFmpeg for true audio extraction
         if (options.audioOnly) {
             args.push('--extract-audio', '--audio-format', 'mp3');
-            // yt-dlp automatically updates the extension to .mp3 when extracting audio
-        }
-
-        // CRITICAL FIX: Explicitly tell yt-dlp where ffmpeg is
-        // We need to resolve this asynchronously but downloadVideo is synchronous.
-        // We'll wrap the spawn in a promise-like execution or just fetch it beforehand if possible.
-        // Since we can't easily change signature, we'll assume it's initialized or use a direct path guess as fallback
-
-        // BEST PRACTICE FIX: We perform a quick lookup based on app state, similar to getBinaryPath
-        let ffmpegPath = '';
-        if (app.isPackaged) {
-            ffmpegPath = path.join(process.resourcesPath, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-        } else {
-            const platformFolder = process.platform === 'win32' ? 'bin-win' : 'bin-mac';
-            ffmpegPath = path.join(app.getAppPath(), 'resources', platformFolder, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-        }
-
-        if (fs.existsSync(ffmpegPath)) {
-            console.log('[YtDlp] Using ffmpeg at:', ffmpegPath);
-            args.push('--ffmpeg-location', ffmpegPath);
-            // Also explicitly specify audio downloader args if needed, but ffmpeg-location usually covers it
-        } else {
-            console.warn('[YtDlp] FFmpeg not found at expected path:', ffmpegPath);
         }
 
         const child = spawn(this.binPath, args);
