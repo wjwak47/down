@@ -312,9 +312,10 @@ class YtDlpService {
             const args = [
                 '--dump-json',
                 '--no-playlist',
-                // SAFETY FIX: Force pre-merged MP4 format
-                // This ensures the URL we get HAS AUDIO. 'bestvideo+bestaudio' returns video-only stream URL.
-                '-f', 'best[ext=mp4]/best',
+                // PREVIEW FIX: Strictly force H.264 MP4 via HTTP
+                // 'protocol^=http' ensures we get a direct file link (not HLS/m3u8) which Electron can play directly.
+                // 'vcodec^=avc1' ensures H.264 codec which is universally supported for preview.
+                '-f', 'best[vcodec^=avc1][ext=mp4][protocol^=http]/best[vcodec^=avc1][ext=mp4]/best[ext=mp4]/best',
                 url
             ];
 
