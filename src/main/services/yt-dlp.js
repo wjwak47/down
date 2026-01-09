@@ -372,10 +372,11 @@ class YtDlpService {
         // Determine if we're on macOS to enforce H.264 encoding
         const isMac = process.platform === 'darwin';
 
-        // Format string: prioritize H.264 (avc1) for macOS compatibility
+        // Format string: prioritize H.264 (avc1) + AAC audio for maximum compatibility
         // This ensures videos play in QuickTime and other Mac players
+        // The format selection includes audio explicitly to avoid silent videos
         const formatString = isMac
-            ? 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1]/best[ext=mp4]/best'
+            ? 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a]/bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1][ext=mp4]/best[ext=mp4]/best'
             : 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best';
 
         const args = [
@@ -384,12 +385,14 @@ class YtDlpService {
             '--merge-output-format', 'mp4',  // Always output as MP4
             '--output', outputPath,
             '--no-playlist',
-            '--no-check-certificate' // Bypass SSL certificate verification issues
+            '--no-check-certificate', // Bypass SSL certificate verification issues
+            '--embed-metadata'  // Embed metadata for better compatibility
         ];
 
-        // On macOS, add ffmpeg post-processing to ensure H.264 encoding if source is not H.264
+        // For macOS, use yt-dlp's built-in recode option instead of postprocessor-args
+        // This properly handles both video and audio streams
         if (isMac) {
-            args.push('--postprocessor-args', 'ffmpeg:-c:v libx264 -c:a aac -movflags +faststart');
+            args.push('--recode-video', 'mp4');
         }
 
         // Add headers if provided in options
