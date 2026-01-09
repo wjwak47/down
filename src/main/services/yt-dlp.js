@@ -309,12 +309,12 @@ class YtDlpService {
         }
 
         return new Promise((resolve, reject) => {
-
             const args = [
                 '--dump-json',
                 '--no-playlist',
-                // Use standard best format for info retrieval to avoid errors
-                '-f', 'bestvideo+bestaudio/best',
+                // SAFETY FIX: Force pre-merged MP4 format
+                // This ensures the URL we get HAS AUDIO. 'bestvideo+bestaudio' returns video-only stream URL.
+                '-f', 'best[ext=mp4]/best',
                 url
             ];
 
@@ -372,21 +372,20 @@ class YtDlpService {
         // Determine if we're on macOS
         const isMac = process.platform === 'darwin';
 
-        // EMERGENCY ROLLBACK: Revert to 'best' format
-        // The previous complex format selection forced separate streams which failed to merge.
-        // using 'best' lets yt-dlp choose the best single file (usually 720p/1080p with audio included)
-        // This bypasses the need for complex ffmpeg merging in most cases on Windows.
-        // We only use ffmpeg for explicit recoding on Mac.
+        // UNIVERSAL SAFE MODE: Revert to single-file MP4
+        // We use 'best[ext=mp4]' to fetch the best pre-merged format (video+audio in one file).
+        // This avoids ALL ffmpeg merging issues and ensures audio is present.
+        // It's the most robust way to start.
         const args = [
             url,
-            '--format', 'best',
+            '--format', 'best[ext=mp4]/best',
             '--output', outputPath,
             '--no-playlist',
             '--no-check-certificate',
             '--embed-metadata'
         ];
 
-        // CRITICAL FIX: Explicitly tell yt-dlp where ffmpeg is
+        // Explicitly tell yt-dlp where ffmpeg is, just in case 'best' falls back to merging
         let ffmpegPath = '';
         if (app.isPackaged) {
             ffmpegPath = path.join(process.resourcesPath, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
@@ -395,18 +394,8 @@ class YtDlpService {
             ffmpegPath = path.join(app.getAppPath(), 'resources', platformFolder, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
         }
 
-        // On Mac, we MUST force MP4 and ensure FFmpeg is found for Recoding
-        if (isMac) {
-            args.push('--recode-video', 'mp4');
-            // Mac binaries are often strictly explicitly located
-            if (fs.existsSync(ffmpegPath)) {
-                console.log('[YtDlp] Using ffmpeg at (Mac):', ffmpegPath);
-                args.push('--ffmpeg-location', ffmpegPath);
-            }
-        }
-        // On Windows, pass ffmpeg location if it exists
-        else if (fs.existsSync(ffmpegPath)) {
-            console.log('[YtDlp] Using ffmpeg at (Win):', ffmpegPath);
+        if (fs.existsSync(ffmpegPath)) {
+            console.log('[YtDlp] Using ffmpeg at:', ffmpegPath);
             args.push('--ffmpeg-location', ffmpegPath);
         }
 
@@ -425,6 +414,7 @@ class YtDlpService {
 
         // Use FFmpeg for true audio extraction
         if (options.audioOnly) {
+            // For audio, we still need ffmpeg, but extracting mp3 is usually safer than merging video
             args.push('--extract-audio', '--audio-format', 'mp3');
         }
 
