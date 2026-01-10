@@ -5,6 +5,7 @@ import FormData from 'form-data';
 import { spawn } from 'child_process';
 import os from 'os';
 import { getAudioDuration, extractAudioSegment, mergeAudioFiles } from '../utils/ffmpeg-helper.js';
+import { needsFormatConversion, convertToMP3 } from './groq-whisper-helpers.js';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const MAX_FILE_SIZE_MB = 24; // Groq limit is 25MB, use 24 to be safe
@@ -179,140 +180,168 @@ class GroqWhisperService {
 
         console.log('[Groq Whisper] File size:', fileSizeMB.toFixed(2), 'MB');
 
-        // If file is under limit, transcribe directly
-        if (fileSizeMB <= MAX_FILE_SIZE_MB) {
-            return await this.transcribeSingleFile(audioPath, { language, model }, onProgress);
+        // Check if format needs conversion for better compatibility
+        const needsConv = needsFormatConversion(audioPath);
+        let fileToTranscribe = audioPath;
+        let tempConvertedFile = null;
+
+        if (needsConv) {
+            console.log('[Groq Whisper] Format needs conversion for optimal transcription');
+            onProgress?.({ stage: 'converting', message: 'Converting audio format...' });
+
+            tempConvertedFile = await convertToMP3(audioPath, this.ffmpegPath);
+            fileToTranscribe = tempConvertedFile;
+            console.log('[Groq Whisper] Temporary MP3 created:', tempConvertedFile);
         }
 
-        // For large files, split and transcribe in chunks
-        console.log('[Groq Whisper] File exceeds limit, will split into chunks');
-        onProgress?.({ stage: 'splitting', message: 'Splitting audio into chunks...' });
-
-        const chunks = await this.splitAudioIntoChunks(audioPath, onProgress, manualDuration);
-        const allSegments = [];
-
-        console.log(`[Groq Whisper] Split into ${chunks.length} chunks`);
-
-        for (let i = 0; i < chunks.length; i++) {
-            const chunk = chunks[i];
-            onProgress?.({
-                stage: 'transcribing',
-                message: `Transcribing chunk ${i + 1}/${chunks.length}...`,
-                percent: Math.round((i / chunks.length) * 100)
-            });
-
-            // 🔥 NEVER-GIVE-UP MODE: Infinite retry until success!
-            let success = false;
-            let attemptCount = 0; // Track attempts for logging
-
-            while (!success) {
-                // Get available key
-                let currentKey = this.getAvailableKey();
-
-                attemptCount++; // Increment at start of each attempt
-
-                // If no key available, wait for shortest cooldown  
-                if (!currentKey) {
-                    const soonestKey = this.keyPool.reduce((prev, curr) =>
-                        prev.cooldownUntil < curr.cooldownUntil ? prev : curr
-                    );
-                    const waitTime = Math.max(1000, soonestKey.cooldownUntil - Date.now());
-
-                    console.log(`[Groq Whisper] ⏸ Chunk ${i + 1}/${chunks.length}: All keys cooling, waiting ${Math.ceil(waitTime / 1000)}s (attempt #${attemptCount})`);
-                    onProgress?.({
-                        stage: 'waiting',
-                        message: `⏸ All keys cooling, waiting ${Math.ceil(waitTime / 1000)}s... (chunk ${i + 1}/${chunks.length}, attempt #${attemptCount})`
-                    });
-
-                    await new Promise(resolve => setTimeout(resolve, waitTime + 1000));
-                    continue; // Try again after waiting
-                }
-
-                try {
-                    // Use the selected key for this request
-                    this.apiKey = currentKey;
-                    const result = await this.transcribeSingleFile(chunk.path, { language, model }, null);
-
-                    if (result.success && result.segments && result.segments.length > 0) {
-                        const adjustedSegments = result.segments.map(seg => ({
-                            ...seg,
-                            start: seg.start + chunk.startTime,
-                            end: seg.end + chunk.startTime
-                        }));
-                        allSegments.push(...adjustedSegments);
-                        console.log(`[Groq Whisper] ✅ Chunk ${i + 1}/${chunks.length} SUCCESS after ${attemptCount} attempt(s): ${adjustedSegments.length} segments`);
-                    } else if (result.success && result.text) {
-                        allSegments.push({
-                            start: chunk.startTime,
-                            end: chunk.endTime,
-                            text: result.text
-                        });
-                        console.log(`[Groq Whisper] ✅ Chunk ${i + 1}/${chunks.length} SUCCESS after ${attemptCount} attempt(s): text only`);
-                    }
-                    success = true;
-                } catch (error) {
-                    const isRateLimit = error.message?.includes('rate_limit') || error.message?.includes('429');
-
-                    if (isRateLimit) {
-                        // Mark current key as cooling and switch immediately
-                        this.markKeyCooling(currentKey);
-                        console.log(`[Groq Whisper] 🔄 Chunk ${i + 1}/${chunks.length}: Rate limit, switching key (attempt #${attemptCount})`);
-
-                        onProgress?.({
-                            stage: 'retrying',
-                            message: `🔄 Retrying chunk ${i + 1}/${chunks.length} (attempt #${attemptCount})...`
-                        });
-
-                        // No wait - immediately try next key
-                    } else {
-                        // For other errors, brief wait then retry
-                        console.log(`[Groq Whisper] ⚠ Chunk ${i + 1}/${chunks.length}: Error on attempt #${attemptCount}, retrying:`, error.message);
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                    }
-                }
+        try {
+            // If file is under limit, transcribe directly
+            if (fileSizeMB <= MAX_FILE_SIZE_MB) {
+                const result = await this.transcribeSingleFile(fileToTranscribe, { language, model }, onProgress);
+                return result;
             }
 
-            if (!success) {
-                console.error(`[Groq Whisper] Failed chunk ${i + 1} after all attempts`);
-                console.error(`[Groq Whisper] Missing chunk time range: ${chunk.startTime}s - ${chunk.endTime}s`);
-                // Add a placeholder segment for failed chunks to maintain timeline
-                allSegments.push({
-                    start: chunk.startTime,
-                    end: chunk.endTime,
-                    text: `[转写失败 chunk ${i + 1}]`
+            // For large files, split and transcribe in chunks
+            console.log('[Groq Whisper] File exceeds limit, will split into chunks');
+            console.log('[Groq Whisper] ⏱️ Manual Duration Parameter:', manualDuration, 'seconds');
+            onProgress?.({ stage: 'splitting', message: 'Splitting audio into chunks...' });
+
+            const chunks = await this.splitAudioIntoChunks(fileToTranscribe, onProgress, manualDuration);
+            const allSegments = [];
+
+            console.log(`[Groq Whisper] Split into ${chunks.length} chunks`);
+
+            for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                onProgress?.({
+                    stage: 'transcribing',
+                    message: `Transcribing chunk ${i + 1}/${chunks.length}...`,
+                    percent: Math.round((i / chunks.length) * 100)
                 });
+
+                // 🔥 NEVER-GIVE-UP MODE: Infinite retry until success!
+                let success = false;
+                let attemptCount = 0; // Track attempts for logging
+
+                while (!success) {
+                    // Get available key
+                    let currentKey = this.getAvailableKey();
+
+                    attemptCount++; // Increment at start of each attempt
+
+                    // If no key available, wait for shortest cooldown  
+                    if (!currentKey) {
+                        const soonestKey = this.keyPool.reduce((prev, curr) =>
+                            prev.cooldownUntil < curr.cooldownUntil ? prev : curr
+                        );
+                        const waitTime = Math.max(1000, soonestKey.cooldownUntil - Date.now());
+
+                        console.log(`[Groq Whisper] ⏸ Chunk ${i + 1}/${chunks.length}: All keys cooling, waiting ${Math.ceil(waitTime / 1000)}s (attempt #${attemptCount})`);
+                        onProgress?.({
+                            stage: 'waiting',
+                            message: `⏸ All keys cooling, waiting ${Math.ceil(waitTime / 1000)}s... (chunk ${i + 1}/${chunks.length}, attempt #${attemptCount})`
+                        });
+
+                        await new Promise(resolve => setTimeout(resolve, waitTime + 1000));
+                        continue; // Try again after waiting
+                    }
+
+                    try {
+                        // Use the selected key for this request
+                        this.apiKey = currentKey;
+                        const result = await this.transcribeSingleFile(chunk.path, { language, model }, null);
+
+                        if (result.success && result.segments && result.segments.length > 0) {
+                            const adjustedSegments = result.segments.map(seg => ({
+                                ...seg,
+                                start: seg.start + chunk.startTime,
+                                end: seg.end + chunk.startTime
+                            }));
+                            allSegments.push(...adjustedSegments);
+                            console.log(`[Groq Whisper] ✅ Chunk ${i + 1}/${chunks.length} SUCCESS after ${attemptCount} attempt(s): ${adjustedSegments.length} segments`);
+                        } else if (result.success && result.text) {
+                            allSegments.push({
+                                start: chunk.startTime,
+                                end: chunk.endTime,
+                                text: result.text
+                            });
+                            console.log(`[Groq Whisper] ✅ Chunk ${i + 1}/${chunks.length} SUCCESS after ${attemptCount} attempt(s): text only`);
+                        }
+                        success = true;
+                    } catch (error) {
+                        const isRateLimit = error.message?.includes('rate_limit') || error.message?.includes('429');
+
+                        if (isRateLimit) {
+                            // Mark current key as cooling and switch immediately
+                            this.markKeyCooling(currentKey);
+                            console.log(`[Groq Whisper] 🔄 Chunk ${i + 1}/${chunks.length}: Rate limit, switching key (attempt #${attemptCount})`);
+
+                            onProgress?.({
+                                stage: 'retrying',
+                                message: `🔄 Retrying chunk ${i + 1}/${chunks.length} (attempt #${attemptCount})...`
+                            });
+
+                            // No wait - immediately try next key
+                        } else {
+                            // For other errors, brief wait then retry
+                            console.log(`[Groq Whisper] ⚠ Chunk ${i + 1}/${chunks.length}: Error on attempt #${attemptCount}, retrying:`, error.message);
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                        }
+                    }
+                }
+
+                if (!success) {
+                    console.error(`[Groq Whisper] Failed chunk ${i + 1} after all attempts`);
+                    console.error(`[Groq Whisper] Missing chunk time range: ${chunk.startTime}s - ${chunk.endTime}s`);
+                    // Add a placeholder segment for failed chunks to maintain timeline
+                    allSegments.push({
+                        start: chunk.startTime,
+                        end: chunk.endTime,
+                        text: `[转写失败 chunk ${i + 1}]`
+                    });
+                }
+
+                // Clean up chunk file
+                try {
+                    fs.unlinkSync(chunk.path);
+                } catch (e) { }
+
+                // Small delay between chunks (1 second with key pool)
+                if (i < chunks.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
             }
 
-            // Clean up chunk file
-            try {
-                fs.unlinkSync(chunk.path);
-            } catch (e) { }
+            console.log(`[Groq Whisper] Completed ${allSegments.length} segments from ${chunks.length} chunks`);
 
-            // Small delay between chunks (1 second with key pool)
-            if (i < chunks.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            onProgress?.({ stage: 'processing', message: 'Generating subtitles...' });
+
+            // Generate final output
+            const srt = this.generateSrt(allSegments);
+            const plainText = this.generatePlainText(allSegments);
+            const fullText = allSegments.map(s => s.text).join(' ');
+
+            onProgress?.({ stage: 'complete', message: 'Transcription complete' });
+
+            return {
+                success: true,
+                text: fullText,
+                srt: srt,
+                plainText: plainText,
+                segments: allSegments,
+                duration: chunks.length > 0 ? chunks[chunks.length - 1].endTime : 0
+            };
+        } finally {
+            // Cleanup temporary converted file if created
+            if (tempConvertedFile && fs.existsSync(tempConvertedFile)) {
+                try {
+                    fs.unlinkSync(tempConvertedFile);
+                    console.log('[Groq Whisper] Cleaned up temporary file:', tempConvertedFile);
+                } catch (err) {
+                    console.error('[Groq Whisper] Failed to delete temp file:', err);
+                }
             }
         }
-
-        console.log(`[Groq Whisper] Completed ${allSegments.length} segments from ${chunks.length} chunks`);
-
-        onProgress?.({ stage: 'processing', message: 'Generating subtitles...' });
-
-        // Generate final output
-        const srt = this.generateSrt(allSegments);
-        const plainText = this.generatePlainText(allSegments);
-        const fullText = allSegments.map(s => s.text).join(' ');
-
-        onProgress?.({ stage: 'complete', message: 'Transcription complete' });
-
-        return {
-            success: true,
-            text: fullText,
-            srt: srt,
-            plainText: plainText,
-            segments: allSegments,
-            duration: chunks.length > 0 ? chunks[chunks.length - 1].endTime : 0
-        };
     }
 
     /**
@@ -578,13 +607,129 @@ class GroqWhisperService {
      * 2
      * ...
      */
+    smartSplitSegments(segments) {
+        const MAX_CHARS = 20; // 最大字符数
+        const MAX_DURATION = 5; // 最大时长（秒）
+        const result = [];
+
+        for (const segment of segments) {
+            const text = (segment.text || '').trim();
+            const duration = segment.end - segment.start;
+            const charCount = text.length;
+
+            // 如果字幕不长，直接保留
+            if (charCount <= MAX_CHARS && duration <= MAX_DURATION) {
+                result.push(segment);
+                continue;
+            }
+
+            // 需要切分：按标点符号分割
+            const sentences = this.splitByPunctuation(text);
+
+            if (sentences.length === 1) {
+                // 没有标点，按字符数强制切分
+                const parts = this.splitByCharCount(text, MAX_CHARS);
+                const timePerPart = duration / parts.length;
+
+                parts.forEach((part, index) => {
+                    result.push({
+                        start: segment.start + (timePerPart * index),
+                        end: segment.start + (timePerPart * (index + 1)),
+                        text: part
+                    });
+                });
+            } else {
+                // 有标点，按句子分配时间
+                const totalChars = text.length;
+                let currentTime = segment.start;
+
+                sentences.forEach((sentence, index) => {
+                    const sentenceChars = sentence.length;
+                    const timeRatio = sentenceChars / totalChars;
+                    const sentenceDuration = duration * timeRatio;
+
+                    result.push({
+                        start: currentTime,
+                        end: currentTime + sentenceDuration,
+                        text: sentence
+                    });
+
+                    currentTime += sentenceDuration;
+                });
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 按标点符号切分文本
+     */
+    splitByPunctuation(text) {
+        // 中文和英文标点符号
+        const punctuation = /([。！？，、；：,.!?;:])/g;
+        const parts = text.split(punctuation).filter(p => p.trim());
+
+        const sentences = [];
+        let current = '';
+
+        for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+
+            if (punctuation.test(part)) {
+                // 是标点符号，添加到当前句子
+                current += part;
+                if (/[。！？.!?]/.test(part)) {
+                    // 句末标点，完成一个句子
+                    if (current.trim()) {
+                        sentences.push(current.trim());
+                    }
+                    current = '';
+                }
+            } else {
+                current += part;
+            }
+        }
+
+        // 添加剩余部分
+        if (current.trim()) {
+            sentences.push(current.trim());
+        }
+
+        return sentences.length > 0 ? sentences : [text];
+    }
+
+    /**
+     * 按字符数强制切分
+     */
+    splitByCharCount(text, maxChars) {
+        const parts = [];
+        for (let i = 0; i < text.length; i += maxChars) {
+            parts.push(text.slice(i, i + maxChars));
+        }
+        return parts;
+    }
+
+    /**
+     * Generate SRT subtitle file
+     * Format:
+     * 1
+     * 00:00:00,000 --> 00:00:05,000
+     * Subtitle text
+     *
+     * 2
+     * ...
+     */
     generateSrt(segments) {
         if (!segments || segments.length === 0) return '';
+
+        // 智能切分长字幕
+        const optimizedSegments = this.smartSplitSegments(segments);
 
         // Add UTF-8 BOM for better compatibility with video editors
         const BOM = '\uFEFF';
 
-        const srtLines = segments.map((segment, index) => {
+        const srtLines = optimizedSegments.map((segment, index) => {
             const startTime = this.formatSrtTime(segment.start);
             const endTime = this.formatSrtTime(segment.end);
             const text = (segment.text || '').trim();

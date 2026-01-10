@@ -313,6 +313,83 @@ const AudioTranscriber = () => {
         setShowSettings(false);
     };
 
+    const handleExportConfig = () => {
+        const config = {
+            groq_api_keys: groqApiKeys.map(k => k.key),
+            gemini_api_key: geminiApiKey,
+            transcribe_language: language,
+            exported_at: new Date().toISOString(),
+            version: '1.0'
+        };
+
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `proflow-config-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const handleImportConfig = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                const text = await file.text();
+                const config = JSON.parse(text);
+
+                // Validate config structure
+                if (!config.version) {
+                    throw new Error('Invalid config file format');
+                }
+
+                // Import keys
+                if (config.groq_api_keys && Array.isArray(config.groq_api_keys)) {
+                    setGroqApiKeys(config.groq_api_keys.map(key => ({
+                        key: key,
+                        status: 'available',
+                        cooldownUntil: 0
+                    })));
+                }
+
+                if (config.gemini_api_key) {
+                    setGeminiApiKey(config.gemini_api_key);
+                }
+
+                if (config.transcribe_language) {
+                    setLanguage(config.transcribe_language);
+                }
+
+                // Save to localStorage
+                localStorage.setItem('groq_api_keys', JSON.stringify(config.groq_api_keys.map(k => ({ key: k }))));
+                localStorage.setItem('gemini_api_key', config.gemini_api_key || '');
+                localStorage.setItem('transcribe_language', config.transcribe_language || 'zh');
+
+                setTestStatus({
+                    testing: false,
+                    success: true,
+                    message: `✅ Configuration imported successfully! (${config.groq_api_keys?.length || 0} Groq keys)`
+                });
+
+                setTimeout(() => {
+                    setTestStatus({ testing: false, success: null, message: '' });
+                }, 3000);
+            } catch (err) {
+                setTestStatus({
+                    testing: false,
+                    success: false,
+                    message: `❌ Import failed: ${err.message}`
+                });
+            }
+        };
+        input.click();
+    };
+
     const handleManualGapDetection = () => {
         if (!srtContent) {
             setError('需要SRT内容才能检测缺口');
@@ -648,27 +725,44 @@ const AudioTranscriber = () => {
                         {/* Manual Duration Override */}
                         <div>
                             <label className="block text-sm font-medium text-gray-600 mb-2">
-                                手动指定时长 (可选)
-                                <span className="text-xs text-gray-400 ml-2">格式: HH:MM:SS 或留空自动检测</span>
+                                Manual Duration (Optional)
+                                <span className="text-xs text-gray-400 ml-2">Format: HH:MM:SS or leave empty for auto-detect</span>
                             </label>
                             <input
                                 type="text"
                                 value={manualDuration}
                                 onChange={(e) => setManualDuration(e.target.value)}
-                                placeholder="例如: 02:01:25"
+                                placeholder="Example: 02:01:25"
                                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
                             />
                             <p className="mt-1 text-xs text-gray-400">
-                                💡 如果自动检测时长不准确，手动输入实际时长
+                                💡 If auto-detection is inaccurate, manually input actual duration
                             </p>
                         </div>
 
-                        <button
-                            onClick={handleSaveSettings}
-                            className="px-4 py-2 bg-[#0ea5e9] text-white rounded-lg text-sm font-medium hover:bg-[#0284c7] transition-colors"
-                        >
-                            Save Settings
-                        </button>
+                        <div className="grid grid-cols-3 gap-2">
+                            <button
+                                onClick={handleSaveSettings}
+                                className="px-3 py-2 bg-[#0ea5e9] text-white rounded-lg text-sm font-medium hover:bg-[#0284c7] transition-colors flex items-center justify-center gap-1"
+                            >
+                                <Settings size={14} />
+                                Save Settings
+                            </button>
+                            <button
+                                onClick={handleExportConfig}
+                                className="px-3 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors flex items-center justify-center gap-1"
+                            >
+                                <Download size={14} />
+                                Export Config
+                            </button>
+                            <button
+                                onClick={handleImportConfig}
+                                className="px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 transition-colors flex items-center justify-center gap-1"
+                            >
+                                <Upload size={14} />
+                                Import Config
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -697,11 +791,18 @@ const AudioTranscriber = () => {
                         onDrop={handleDrop}
                     >
                         {file ? (
-                            <div className="text-center p-4">
+                            <div className="text-center p-4 w-full">
                                 <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
                                     <Mic size={24} className="text-primary" />
                                 </div>
-                                <p className="text-sm font-medium text-gray-800 truncate max-w-full px-4">{file.name}</p>
+                                <div className="w-full px-4">
+                                    <p
+                                        className="text-sm font-medium text-gray-800 truncate w-full block"
+                                        title={file.name}
+                                    >
+                                        {file.name}
+                                    </p>
+                                </div>
                                 <p className="text-xs text-gray-400 mt-1">Click to change</p>
                             </div>
                         ) : (

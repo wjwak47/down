@@ -373,8 +373,8 @@ class YtDlpService {
         // Determine format based on audioOnly option
         let formatString;
         if (options.audioOnly) {
-            // For audio-only: download best audio stream
-            formatString = 'bestaudio[ext=m4a]/bestaudio/best';
+            // For audio-only: download best audio in its original format (no conversion)
+            formatString = 'bestaudio/best';
         } else {
             // UNIVERSAL SAFE MODE: Revert to single-file MP4
             // We use 'best[ext=mp4]' to fetch the best pre-merged format (video+audio in one file).
@@ -418,11 +418,8 @@ class YtDlpService {
             }
         }
 
-        // Use FFmpeg for true audio extraction
-        if (options.audioOnly) {
-            // For audio, we still need ffmpeg, but extracting mp3 is usually safer than merging video
-            args.push('--extract-audio', '--audio-format', 'mp3');
-        }
+        // Note: For audio-only downloads, we keep the original format (m4a, aac, etc.)
+        // No conversion to mp3 - preserves original quality for transcription
 
         const child = spawn(this.binPath, args);
         child._outputPath = null;
