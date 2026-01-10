@@ -206,9 +206,8 @@ const extractAudioInternal = async (ffmpegInstance, inputPath, outputPath, onPro
 
         ffmpegInstance(inputPath)
             .inputOptions([
-                '-accurate_seek',
-                '-err_detect ignore_err',
-                '-fflags +genpts+igndts'  // Generate PTS, ignore DTS errors
+                '-nostdin',           // No interactive mode
+                '-err_detect ignore_err' // Ignore stream errors but continue processing
             ])
             .noVideo()
             .audioCodec('libmp3lame')
@@ -216,10 +215,10 @@ const extractAudioInternal = async (ffmpegInstance, inputPath, outputPath, onPro
             .audioChannels(1)
             .audioFrequency(16000)
             .outputOptions([
-                '-avoid_negative_ts 1',
+                '-avoid_negative_ts make_zero', // Handle negative timestamps
                 '-max_muxing_queue_size 9999',
-                '-async 1',  // Audio sync
-                '-vsync 0'   // No video sync (audio only)
+                '-async 1',           // Audio sync
+                '-t 99:99:99'         // Force maximum duration extraction (no early stop)
             ])
             .output(outputPath)
             .on('codecData', (data) => {
@@ -227,6 +226,7 @@ const extractAudioInternal = async (ffmpegInstance, inputPath, outputPath, onPro
                 const parts = data.duration.split(':');
                 if (parts.length === 3) {
                     duration = parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+                    console.log(`[FFmpeg] Detected video duration: ${duration}s (${data.duration})`);
                 }
             })
             .on('progress', (progress) => {
