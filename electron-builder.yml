@@ -1,5 +1,5 @@
-appId: com.antigravity.videodownloader
-productName: Video Downloader
+appId: com.jonshon.proflowstudio
+productName: ProFlow Studio
 directories:
   output: dist
   buildResources: build
@@ -20,7 +20,7 @@ extraResources:
       - "**/*"
 
 win:
-  executableName: VideoDownloader
+  executableName: ProFlowStudio
   target: 
     - target: zip
       arch:
@@ -48,7 +48,7 @@ nsis:
   deleteAppDataOnUninstall: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Video Downloader
+  shortcutName: ProFlow Studio
   artifactName: ${name}-${version}-setup.${ext}
-  uninstallDisplayName: Video Downloader
+  uninstallDisplayName: ProFlow Studio
 

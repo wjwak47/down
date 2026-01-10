@@ -120,10 +120,10 @@ const MediaConverter = () => {
     ];
 
     const qualityPresets = [
-        { id: 'fast', label: '快速', desc: '较大文件', icon: '⚡' },
-        { id: 'standard', label: '标准', desc: '平衡', icon: '⭐' },
-        { id: 'high', label: '高质量', desc: '较小文件', icon: '💎' },
-        { id: 'lossless', label: '无损', desc: '最大文件', icon: '🎯' },
+        { id: 'fast', label: 'Fast', desc: 'Larger file', icon: '⚡' },
+        { id: 'standard', label: 'Standard', desc: 'Balanced', icon: '⭐' },
+        { id: 'high', label: 'High Quality', desc: 'Smaller file', icon: '💎' },
+        { id: 'lossless', label: 'Lossless', desc: 'Largest file', icon: '🎯' },
     ];
 
     return (
@@ -155,7 +155,7 @@ const MediaConverter = () => {
             {/* Quality Presets */}
             <div className="mb-6 bg-white rounded-xl p-5 shadow-sm border border-gray-100">
                 <div className="mb-4">
-                    <label className="block text-sm font-semibold text-text-primary mb-3">质量预设</label>
+                    <label className="block text-sm font-semibold text-text-primary mb-3">Quality Preset</label>
                     <div className="grid grid-cols-4 gap-3">
                         {qualityPresets.map(preset => (
                             <button
@@ -182,7 +182,7 @@ const MediaConverter = () => {
                     disabled={converting}
                 >
                     {showAdvanced ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                    高级设置
+                    Advanced Settings
                 </button>
 
                 {/* Advanced Options */}
@@ -191,9 +191,9 @@ const MediaConverter = () => {
                         {/* CRF Slider */}
                         <div>
                             <label className="flex justify-between text-sm font-medium text-text-primary mb-2">
-                                <span>视频质量 (CRF)</span>
+                                <span>Video Quality (CRF)</span>
                                 <span className="text-gray-500">
-                                    {customCrf} ({customCrf < 20 ? '极高' : customCrf < 24 ? '高' : '中'})
+                                    {customCrf} ({customCrf < 20 ? 'Highest' : customCrf < 24 ? 'High' : 'Medium'})
                                 </span>
                             </label>
                             <input
@@ -206,40 +206,40 @@ const MediaConverter = () => {
                                 className="w-full accent-primary"
                             />
                             <div className="flex justify-between text-xs text-gray-400 mt-1">
-                                <span>最高质量</span>
-                                <span>推荐: 18-23</span>
-                                <span>最小文件</span>
+                                <span>Highest Quality</span>
+                                <span>Recommended: 18-23</span>
+                                <span>Smallest File</span>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             {/* Encoder Preset */}
                             <div>
-                                <label className="block text-sm font-medium text-text-primary mb-2">编码速度</label>
+                                <label className="block text-sm font-medium text-text-primary mb-2">Encoding Speed</label>
                                 <select
                                     value={encoderPreset}
                                     onChange={(e) => setEncoderPreset(e.target.value)}
                                     disabled={converting || qualityPreset === 'lossless'}
                                     className="w-full bg-white border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                 >
-                                    <option value="ultrafast">极快</option>
-                                    <option value="fast">快速</option>
-                                    <option value="medium">中等</option>
-                                    <option value="slow">慢速（推荐）</option>
-                                    <option value="veryslow">极慢</option>
+                                    <option value="ultrafast">Ultra Fast</option>
+                                    <option value="fast">Fast</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="slow">Slow (Recommended)</option>
+                                    <option value="veryslow">Very Slow</option>
                                 </select>
                             </div>
 
                             {/* Resolution */}
                             <div>
-                                <label className="block text-sm font-medium text-text-primary mb-2">分辨率</label>
+                                <label className="block text-sm font-medium text-text-primary mb-2">Resolution</label>
                                 <select
                                     value={resolution}
                                     onChange={(e) => setResolution(e.target.value)}
                                     disabled={converting}
                                     className="w-full bg-white border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                 >
-                                    <option value="original">保持原始</option>
+                                    <option value="original">Keep Original</option>
                                     <option value="720p">720p (HD)</option>
                                     <option value="1080p">1080p (Full HD)</option>
                                     <option value="4k">4K (UHD)</option>
@@ -248,7 +248,7 @@ const MediaConverter = () => {
 
                             {/* Audio Bitrate */}
                             <div>
-                                <label className="block text-sm font-medium text-text-primary mb-2">音频码率</label>
+                                <label className="block text-sm font-medium text-text-primary mb-2">Audio Bitrate</label>
                                 <select
                                     value={audioBitrate}
                                     onChange={(e) => setAudioBitrate(e.target.value)}
@@ -265,7 +265,7 @@ const MediaConverter = () => {
 
                         {qualityPreset === 'lossless' && (
                             <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
-                                💡 无损模式将直接复制视频和音频流，不进行重新编码，保证100%质量。
+                                💡 Lossless mode will directly copy video and audio streams without re-encoding, ensuring 100% quality.
                             </div>
                         )}
                     </div>
@@ -288,8 +288,8 @@ const MediaConverter = () => {
                         <div className="w-16 h-16 bg-blue-50 text-primary rounded-full flex items-center justify-center mb-4">
                             <Upload size={32} />
                         </div>
-                        <h3 className="text-lg font-semibold text-text-primary mb-2">拖拽文件到此处或点击上传</h3>
-                        <p className="text-text-secondary text-sm">支持 MP4, AVI, MKV, MP3, WAV 等格式</p>
+                        <h3 className="text-lg font-semibold text-text-primary mb-2">Drag files here or click to upload</h3>
+                        <p className="text-text-secondary text-sm">Supports MP4, AVI, MKV, MP3, WAV and other formats</p>
                     </div>
                 ) : (
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -345,7 +345,7 @@ const MediaConverter = () => {
                                 disabled={converting}
                             >
                                 <Upload size={14} />
-                                添加更多文件
+                                Add More Files
                             </button>
                         </div>
                     </div>

@@ -1,27 +1,31 @@
-# Video Downloader
+# ProFlow Studio
 
-多功能视频下载工具，支持 Windows 和 macOS。
+**v1.0.0** | Created by **jonshon**
 
-## 功能
+Professional workflow tools for media and documents processing.
 
-- 视频下载（支持多平台）
-- 媒体格式转换
-- 字幕下载
-- 音频提取
+## Features
 
-## 下载安装包
+- 🎬 **Video Downloader** - Multi-platform video downloading
+- 🎞️ **Media Converter** - Convert between audio/video formats
+- 📄 **Document Converter** - Office documents & PDF conversion
+- 🗜️ **File Compressor** - Archive creation and extraction
+- 🎨 **Watermark Remover** - AI-powered watermark removal
+- 🎙️ **AI Transcriber** - Audio/video transcription with Groq Whisper & Gemini
 
-### 自动构建
+## Download
 
-本项目使用 GitHub Actions 自动构建安装包。
+### Automated Builds
 
-1. 前往 [Actions](../../actions) 页面
-2. 点击最新的构建任务
-3. 在 Artifacts 区域下载对应平台的安装包：
-   - `VideoDownloader-Mac` - macOS 版本 (.dmg)
-   - `VideoDownloader-Windows` - Windows 版本 (.zip)
+This project uses GitHub Actions for automated builds.
 
-### 手动构建
+1. Visit the [Actions](../../actions) page
+2. Click on the latest build
+3. Download the installer from Artifacts:
+   - `ProFlowStudio-Mac` - macOS (.dmg)
+   - `ProFlowStudio-Windows` - Windows (.zip)
+
+### Manual Build
 
 #### Windows
 ```bash
@@ -31,29 +35,32 @@ npm run build:win
 
 #### macOS
 ```bash
-# 需要先下载 Mac 版二进制文件
 npm install
 npm run build:mac
 ```
 
-详细 Mac 构建说明请参阅 [BUILD_MAC.md](BUILD_MAC.md)
+See [BUILD_MAC.md](BUILD_MAC.md) for detailed Mac build instructions.
 
-## 开发
+## Development
 
 ```bash
-# 安装依赖
+# Install dependencies
 npm install
 
-# 开发模式
+# Development mode
 npm run dev
 
-# 构建
+# Build
 npm run build
 ```
 
-## 技术栈
+## Tech Stack
 
-- Electron
-- React
-- Vite
+- Electron + React + Vite
 - TailwindCSS
+- Groq Whisper API
+- Google Gemini AI
+
+---
+
+© 2026 jonshon. All rights reserved.

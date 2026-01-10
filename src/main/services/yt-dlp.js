@@ -370,13 +370,21 @@ class YtDlpService {
         // Determine if we're on macOS
         const isMac = process.platform === 'darwin';
 
-        // UNIVERSAL SAFE MODE: Revert to single-file MP4
-        // We use 'best[ext=mp4]' to fetch the best pre-merged format (video+audio in one file).
-        // This avoids ALL ffmpeg merging issues and ensures audio is present.
-        // It's the most robust way to start.
+        // Determine format based on audioOnly option
+        let formatString;
+        if (options.audioOnly) {
+            // For audio-only: download best audio stream
+            formatString = 'bestaudio[ext=m4a]/bestaudio/best';
+        } else {
+            // UNIVERSAL SAFE MODE: Revert to single-file MP4
+            // We use 'best[ext=mp4]' to fetch the best pre-merged format (video+audio in one file).
+            // This avoids ALL ffmpeg merging issues and ensures audio is present.
+            formatString = 'best[ext=mp4]/best';
+        }
+
         const args = [
             url,
-            '--format', 'best[ext=mp4]/best',
+            '--format', formatString,
             '--output', outputPath,
             '--no-playlist',
             '--no-check-certificate',

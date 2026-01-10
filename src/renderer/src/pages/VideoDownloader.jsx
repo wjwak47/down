@@ -190,11 +190,11 @@ function VideoDownloader() {
         try {
             const settings = await window.api.getSettings();
             if (!settings.eudicCookie) {
-                alert('请先在设置中配置欧路听力Cookie');
+                alert('Please configure Eudic Cookie in settings first');
                 return;
             }
             if (!settings.eudicChannel) {
-                alert('请先在设置中选择上传频道');
+                alert('Please select an upload channel in settings first');
                 return;
             }
 
@@ -204,7 +204,7 @@ function VideoDownloader() {
                 null
             );
         } catch (error) {
-            alert('打开上传页面失败：' + error.message);
+            alert('Failed to open upload page: ' + error.message);
         }
     };
 

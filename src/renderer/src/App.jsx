@@ -1,16 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
 import VideoDownloader from './pages/VideoDownloader';
 import MediaConverter from './pages/MediaConverter';
 import DocumentConverter from './pages/DocumentConverter';
 import FileCompressor from './pages/FileCompressor';
 import WatermarkRemover from './components/WatermarkRemover';
+import AudioTranscriber from './pages/AudioTranscriber';
 import Settings from './components/Settings';
 import AppMenu from './components/AppMenu';
 
 function App() {
     const [activeTab, setActiveTab] = useState('video');
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+    // Dynamic title based on active tab
+    useEffect(() => {
+        const tabTitles = {
+            video: 'Video Downloader',
+            media: 'Media Converter',
+            document: 'Document Converter',
+            compress: 'File Compressor',
+            watermark: 'Watermark Remover',
+            transcribe: 'AI Transcriber'
+        };
+        document.title = `ProFlow Studio - ${tabTitles[activeTab] || 'ProFlow Studio'}`;
+    }, [activeTab]);
 
     return (
         <div className="flex h-screen bg-bg-app font-sans text-text-primary relative">
@@ -36,6 +50,9 @@ function App() {
                 </div>
                 <div style={{ display: activeTab === 'watermark' ? 'block' : 'none', height: '100%' }}>
                     <WatermarkRemover />
+                </div>
+                <div style={{ display: activeTab === 'transcribe' ? 'block' : 'none', height: '100%' }}>
+                    <AudioTranscriber />
                 </div>
             </main>
 

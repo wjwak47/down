@@ -70,6 +70,35 @@ const api = {
     watermarkOffProgress: () => {
         ipcRenderer.removeAllListeners('watermark:progress');
         ipcRenderer.removeAllListeners('watermark:complete');
+    },
+
+    // AI Transcription APIs
+    transcribeGetModels: () => ipcRenderer.invoke('transcribe:get-models'),
+    transcribeTestConnection: (apiKey, modelId) => ipcRenderer.invoke('transcribe:test-connection', { apiKey, modelId }),
+    transcribeSelectFile: () => ipcRenderer.invoke('transcribe:select-file'),
+    transcribeExtractAudio: (filePath) => ipcRenderer.invoke('transcribe:extract-audio', filePath),
+    transcribeStart: (data) => ipcRenderer.invoke('transcribe:start', data),
+    transcribeCancel: () => ipcRenderer.invoke('transcribe:cancel'),
+    onTranscribeExtractProgress: (callback) => ipcRenderer.on('transcribe:extract-progress', (_, data) => callback(data)),
+    onTranscribeProgress: (callback) => ipcRenderer.on('transcribe:progress', (_, data) => callback(data)),
+    onTranscribeChunk: (callback) => ipcRenderer.on('transcribe:chunk', (_, data) => callback(data)),
+    transcribeOffListeners: () => {
+        ipcRenderer.removeAllListeners('transcribe:extract-progress');
+        ipcRenderer.removeAllListeners('transcribe:progress');
+        ipcRenderer.removeAllListeners('transcribe:chunk');
+    },
+
+    // Groq Whisper APIs
+    groqTestConnection: (apiKey) => ipcRenderer.invoke('groq:test-connection', apiKey),
+    groqUpdateKeys: (apiKeys) => ipcRenderer.invoke('groq:update-keys', apiKeys),
+    groqTranscribe: (data) => ipcRenderer.invoke('groq:transcribe', data),
+    groqDetectGaps: (data) => ipcRenderer.invoke('groq:detect-gaps', data),
+    groqFillGaps: (data) => ipcRenderer.invoke('groq:fill-gaps', data),
+    onGroqProgress: (callback) => ipcRenderer.on('groq:progress', (_, data) => callback(data)),
+    onGroqKeyStatusUpdate: (callback) => ipcRenderer.on('groq:key-status-update', (_, data) => callback(data)),
+    groqOffListeners: () => {
+        ipcRenderer.removeAllListeners('groq:progress');
+        ipcRenderer.removeAllListeners('groq:key-status-update');
     }
 }
 

@@ -3,6 +3,9 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import ytDlpService from './services/yt-dlp'
 import eudicService from './services/eudic'
+import geminiTranscribeService, { MODELS as GEMINI_MODELS } from './services/gemini-transcribe'
+import groqWhisperService from './services/groq-whisper'
+import { extractAudio, getFfmpegPath, getAudioDuration, extractAudioSegment, mergeAudioFiles } from './utils/ffmpeg-helper'
 import { registerMediaConverter } from './modules/mediaConverter'
 
 import { registerDocumentConverter } from './modules/documentConverter'
@@ -28,6 +31,7 @@ function createWindow() {
         height: 670,
         show: false,
         autoHideMenuBar: true,
+        title: 'ProFlow Studio v1.0.0',
         ...(process.platform === 'linux' ? {} : {}),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
@@ -65,6 +69,11 @@ function createWindow() {
             callback(false);
         }
     });
+
+    // Set main window for services that need to broadcast events
+    groqWhisperService.setMainWindow(mainWindow);
+
+    return mainWindow;
 }
 
 // Force autoplay policy at the app level
@@ -348,6 +357,280 @@ app.whenReady().then(() => {
             throw error;
         }
     });
+
+    // AI Transcription Handlers
+    ipcMain.handle('transcribe:get-models', () => {
+        return GEMINI_MODELS;
+    });
+
+    ipcMain.handle('transcribe:test-connection', async (_, { apiKey, modelId }) => {
+        return await geminiTranscribeService.testConnection(apiKey, modelId);
+    });
+
+    ipcMain.handle('transcribe:select-file', async () => {
+        const { dialog } = require('electron');
+        const result = await dialog.showOpenDialog({
+            properties: ['openFile'],
+            filters: [
+                { name: 'Media Files', extensions: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'] }
+            ]
+        });
+        if (result.canceled || result.filePaths.length === 0) {
+            return null;
+        }
+        return result.filePaths[0];
+    });
+
+    ipcMain.handle('transcribe:extract-audio', async (event, filePath) => {
+        const os = require('os');
+        const path = require('path');
+        const outputPath = path.join(os.tmpdir(), `transcribe_${Date.now()}.mp3`);
+
+        try {
+            await extractAudio(filePath, outputPath, (progress) => {
+                event.sender.send('transcribe:extract-progress', progress);
+            });
+            return { success: true, audioPath: outputPath };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('transcribe:start', async (event, { audioPath, apiKey, modelId, options }) => {
+        try {
+            geminiTranscribeService.initialize(apiKey);
+            const result = await geminiTranscribeService.transcribe(
+                audioPath,
+                { modelId, ...options },
+                (progress) => {
+                    event.sender.send('transcribe:progress', progress);
+                },
+                (chunk, fullText) => {
+                    // Send streaming text chunks to frontend
+                    event.sender.send('transcribe:chunk', { chunk, fullText });
+                }
+            );
+
+            // Clean up temp audio file
+            const fs = require('fs');
+            try {
+                if (fs.existsSync(audioPath)) {
+                    fs.unlinkSync(audioPath);
+                }
+            } catch (e) {
+                console.log('Failed to cleanup temp audio:', e.message);
+            }
+
+            return result;
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('transcribe:cancel', () => {
+        return geminiTranscribeService.cancel();
+    });
+
+    // Groq Whisper API Handlers
+    ipcMain.handle('groq:test-connection', async (_, apiKey) => {
+        return await groqWhisperService.testConnection(apiKey);
+    });
+
+    // Hot-update key pool (add keys during transcription)
+    ipcMain.handle('groq:update-keys', async (_, apiKeys) => {
+        try {
+            groqWhisperService.updateKeyPool(apiKeys);
+            return { success: true };
+        } catch (error) {
+            console.error('[Main] Failed to update Groq keys:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('groq:transcribe', async (event, { audioPath, apiKeys, geminiApiKey, options }) => {
+        try {
+            // Initialize with key pool
+            groqWhisperService.initializeWithKeyPool(apiKeys);
+
+            // Set FFmpeg path for audio chunking
+            const ffmpegPath = await getFfmpegPath();
+            groqWhisperService.setFfmpegPath(ffmpegPath);
+
+            const result = await groqWhisperService.transcribe(
+                audioPath,
+                options,
+                (progress) => {
+                    event.sender.send('groq:progress', progress);
+                }
+            );
+
+            // Clean up temp audio file
+            const fs = require('fs');
+            try {
+                if (fs.existsSync(audioPath)) {
+                    fs.unlinkSync(audioPath);
+                }
+            } catch (e) {
+                console.log('Failed to cleanup temp audio:', e.message);
+            }
+
+            // Auto post-process with Gemini to fix errors
+            if (result.success && geminiApiKey && result.segments && result.segments.length > 0) {
+                event.sender.send('groq:progress', { stage: 'polishing', message: 'AI is correcting errors...' });
+
+                try {
+                    const polishedSegments = await postProcessWithGemini(geminiApiKey, result.segments, options.language);
+
+                    // Regenerate SRT and text with corrected content
+                    result.segments = polishedSegments;
+                    result.srt = groqWhisperService.generateSrt(polishedSegments);
+                    result.plainText = groqWhisperService.generatePlainText(polishedSegments);
+                    result.text = polishedSegments.map(s => s.text).join(' ');
+
+                    console.log('[Gemini] Post-processing complete');
+                } catch (e) {
+                    console.error('[Gemini] Post-processing failed:', e.message);
+                    // Continue with original result if post-processing fails
+                }
+            }
+
+            return result;
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Gap detection and filling handlers
+    ipcMain.handle('groq:detect-gaps', async (_, { srtContent, totalDuration }) => {
+        try {
+            const gaps = groqWhisperService.detectGaps(srtContent, totalDuration);
+            return { success: true, gaps };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('groq:fill-gaps', async (event, { audioPath, gaps, apiKeys, options }) => {
+        try {
+            groqWhisperService.initializeWithKeyPool(apiKeys);
+            const ffmpegPath = await getFfmpegPath();
+            groqWhisperService.setFfmpegPath(ffmpegPath);
+
+            const allNewSegments = [];
+
+            for (let i = 0; i < gaps.length; i++) {
+                const gap = gaps[i];
+                event.sender.send('groq:progress', {
+                    stage: 'filling',
+                    message: `Filling gap ${i + 1}/${gaps.length} (${gap.duration.toFixed(0)}s)...`
+                });
+
+                const result = await groqWhisperService.transcribeGap(
+                    audioPath,
+                    gap,
+                    options,
+                    (progress) => event.sender.send('groq:progress', progress)
+                );
+
+                if (result.success && result.segments) {
+                    allNewSegments.push(...result.segments);
+                    console.log(`[Gap Fill] Gap ${i + 1} filled with ${result.segments.length} segments`);
+                }
+            }
+
+            return { success: true, newSegments: allNewSegments };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Gemini post-processing function
+    async function postProcessWithGemini(apiKey, segments, language) {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+        // CRITICAL: Separate failed chunks (placeholders) from successful ones
+        const failedSegments = [];
+        const successfulSegments = [];
+
+        segments.forEach((seg) => {
+            if (seg.text && (seg.text.includes('[转写失败') || seg.text.includes('[Failed chunk'))) {
+                failedSegments.push(seg);
+            } else {
+                successfulSegments.push(seg);
+            }
+        });
+
+        console.log(`[Gemini] Processing ${successfulSegments.length} successful segments, preserving ${failedSegments.length} failed segments`);
+
+        // Process ONLY successful segments in batches
+        const batchSize = 50;
+        const processedSegments = [];
+
+        for (let i = 0; i < successfulSegments.length; i += batchSize) {
+            const batch = successfulSegments.slice(i, i + batchSize);
+            const textsToFix = batch.map((s, idx) => `[${idx}] ${s.text}`).join('\n');
+
+            const prompt = language === 'zh' ?
+                `以下是语音识别的结果，可能存在错别字、乱码（如???）或识别错误。请修正这些错误，保持原意不变。
+每行格式为 [序号] 文字内容，请按相同格式输出修正后的文字，不要改变序号，不要添加任何额外说明：
+
+${textsToFix}` :
+                `The following is speech recognition output that may contain typos, garbled characters (like ???), or errors. Please correct these errors while keeping the original meaning.
+Each line is formatted as [index] text content. Output the corrected text in the same format, don't change indices, don't add any explanations:
+
+${textsToFix}`;
+
+            try {
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                const correctedText = response.text();
+
+                // Parse corrected text back to segments
+                const lines = correctedText.split('\n').filter(l => l.trim());
+                const batchProcessed = [];
+
+                for (const line of lines) {
+                    const match = line.match(/^\[(\d+)\]\s*(.*)$/);
+                    if (match) {
+                        const idx = parseInt(match[1]);
+                        const text = match[2].trim();
+                        if (batch[idx]) {
+                            batchProcessed.push({
+                                ...batch[idx],
+                                text: text || batch[idx].text
+                            });
+                        }
+                    }
+                }
+
+                // If parsing failed or incomplete, use original segments
+                if (batchProcessed.length === batch.length) {
+                    processedSegments.push(...batchProcessed);
+                } else {
+                    console.warn(`[Gemini] Parsing incomplete (${batchProcessed.length}/${batch.length}), using original`);
+                    processedSegments.push(...batch);
+                }
+            } catch (e) {
+                console.error('[Gemini] Batch processing error:', e.message);
+                processedSegments.push(...batch);
+            }
+
+            // Small delay between batches
+            if (i + batchSize < successfulSegments.length) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+
+        // CRITICAL: Merge processed successful segments with failed segments
+        const allSegments = [...processedSegments, ...failedSegments];
+        allSegments.sort((a, b) => a.start - b.start); // Sort by timestamp
+
+        console.log(`[Gemini] Post-processing complete: ${processedSegments.length} corrected + ${failedSegments.length} preserved = ${allSegments.length} total`);
+
+        return allSegments;
+    }
 
     createWindow()
 
