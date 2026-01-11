@@ -28,6 +28,7 @@ extraResources:
 
 win:
   executableName: ProFlowStudio
+  sign: null
   target: 
     - target: zip
       arch:

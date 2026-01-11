@@ -1,5 +1,15 @@
 export const changelog = [
     {
+        version: '1.1.2',
+        date: '2026-01-11',
+        changes: {
+            improved: [
+                'Disabled Windows code signing for unsigned builds',
+                'Streamlined build process configuration'
+            ]
+        }
+    },
+    {
         version: '1.1.1',
         date: '2026-01-11',
         changes: {
