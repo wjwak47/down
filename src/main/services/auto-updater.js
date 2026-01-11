@@ -10,6 +10,7 @@ class AutoUpdateService {
     constructor() {
         this.mainWindow = null;
         this.updateDownloaded = false;
+        this.silent = false; // Flag for silent checks (no dialog if already latest)
 
         // Configure auto-updater
         autoUpdater.autoDownload = false; // Manual download control
@@ -49,12 +50,15 @@ class AutoUpdateService {
         autoUpdater.on('update-not-available', (info) => {
             this.sendStatusToWindow('update-not-available');
 
-            dialog.showMessageBox(this.mainWindow, {
-                type: 'info',
-                title: 'No Updates',
-                message: 'You are running the latest version!',
-                detail: `Current version: ${info.version}`
-            });
+            // Only show dialog if not in silent mode (manual check)
+            if (!this.silent) {
+                dialog.showMessageBox(this.mainWindow, {
+                    type: 'info',
+                    title: 'No Updates',
+                    message: 'You are running the latest version!',
+                    detail: `Current version: ${info.version}`
+                });
+            }
         });
 
         // Download progress
@@ -88,12 +92,15 @@ class AutoUpdateService {
         autoUpdater.on('error', (err) => {
             this.sendStatusToWindow('error', err);
 
-            dialog.showMessageBox(this.mainWindow, {
-                type: 'error',
-                title: 'Update Error',
-                message: 'Failed to check for updates',
-                detail: err.message
-            });
+            // Only show error dialog if not in silent mode
+            if (!this.silent) {
+                dialog.showMessageBox(this.mainWindow, {
+                    type: 'error',
+                    title: 'Update Error',
+                    message: 'Failed to check for updates',
+                    detail: err.message
+                });
+            }
         });
     }
 
@@ -103,7 +110,8 @@ class AutoUpdateService {
         }
     }
 
-    checkForUpdates() {
+    checkForUpdates(silent = false) {
+        this.silent = silent;
         autoUpdater.checkForUpdates();
     }
 

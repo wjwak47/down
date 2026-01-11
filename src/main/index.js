@@ -52,7 +52,7 @@ function createWindow() {
         // Check for updates on startup (in production only)
         if (!is.dev) {
             setTimeout(() => {
-                autoUpdaterService.checkForUpdates()
+                autoUpdaterService.checkForUpdates(true) // silent=true, don't show dialog if already latest
             }, 3000) // Wait 3 seconds after startup
         }
     })
@@ -460,7 +460,7 @@ app.whenReady().then(() => {
 
     // Auto-updater IPC handlers
     ipcMain.handle('app:check-for-updates', () => {
-        autoUpdaterService.checkForUpdates();
+        autoUpdaterService.checkForUpdates(false); // Manual check, show dialog even if already latest
         return { success: true };
     });
 
