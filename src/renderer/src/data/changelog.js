@@ -1,5 +1,16 @@
 export const changelog = [
     {
+        version: '1.1.3',
+        date: '2026-01-11',
+        changes: {
+            fixed: [
+                'Auto-update functionality - removed --publish never flag that blocked app-update.yml generation',
+                'Version number now correctly updates in packaged app',
+                'Manual update check now works properly'
+            ]
+        }
+    },
+    {
         version: '1.1.2',
         date: '2026-01-11',
         changes: {
