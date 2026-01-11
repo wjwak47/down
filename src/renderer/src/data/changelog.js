@@ -1,5 +1,21 @@
 export const changelog = [
     {
+        version: '1.1.1',
+        date: '2026-01-11',
+        changes: {
+            added: [
+                'Automatic update system with silent startup checks',
+                'Manual update check via menu (Check for Updates)',
+                'Smart update notifications - only alerts when new version available'
+            ],
+            fixed: [
+                'Auto-update functionality in packaged application',
+                'Missing app-update.yml configuration file',
+                'Silent mode for startup update checks to avoid interrupting users'
+            ]
+        }
+    },
+    {
         version: '1.1.0',
         date: '2026-01-11',
         changes: {
