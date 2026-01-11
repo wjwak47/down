@@ -13,12 +13,12 @@ files:
   - "!resources/bin-win/*"
   - "!resources/bin-mac/*"
 
-publish:
-  provider: github
-  owner: wjwak47
-  repo: down
-  releaseType: release
-
+# Publish configuration (disabled - handled by GitHub Actions create-release job)
+# publish:
+#   provider: github
+#   owner: wjwak47
+#   repo: down
+#   releaseType: release
 
 extraResources:
   - from: resources/bin-${os}
