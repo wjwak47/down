@@ -199,28 +199,7 @@ const AudioTranscriber = () => {
             const fileExt = file.path.toLowerCase().substring(file.path.lastIndexOf('.'));
             const isAudioFile = audioExtensions.includes(fileExt);
 
-            let audioPath;
-
-            if (isAudioFile) {
-                // Direct audio file - skip extraction to preserve metadata
-                console.log('[Transcriber] Audio file detected, skipping extraction');
-                setProgress({ stage: 'preparing', message: 'Preparing audio file...', percent: 10 });
-                audioPath = file.path;
-            } else {
-                // Video file - extract audio
-                console.log('[Transcriber] Video file detected, extracting audio');
-                const extractResult = await window.api.transcribeExtractAudio(file.path);
-                if (!extractResult.success) {
-                    throw new Error(extractResult.error || 'Failed to extract audio');
-                }
-                audioPath = extractResult.audioPath;
-            }
-
-            // Step 2: Start Groq Whisper transcription with key pool
-            setStatus('transcribing');
-            setProgress({ stage: 'transcribing', message: 'Uploading to Groq Whisper...', percent: 0 });
-
-            // Parse manual duration if provided (HH:MM:SS format)
+            // Parse manual duration BEFORE extraction (HH:MM:SS format)
             let manualDurationSeconds = null;
             if (manualDuration.trim()) {
                 const parts = manualDuration.trim().split(':');
@@ -232,6 +211,29 @@ const AudioTranscriber = () => {
                     console.log(`[Transcriber] Using manual duration: ${manualDurationSeconds}s (${manualDuration})`);
                 }
             }
+
+            let audioPath;
+
+            if (isAudioFile) {
+                // Direct audio file - skip extraction to preserve metadata
+                console.log('[Transcriber] Audio file detected, skipping extraction');
+                setProgress({ stage: 'preparing', message: 'Preparing audio file...', percent: 10 });
+                audioPath = file.path;
+            } else {
+                // Video file - extract audio, pass manual duration for gap detection
+                console.log('[Transcriber] Video file detected, extracting audio');
+                const extractResult = await window.api.transcribeExtractAudio(file.path, {
+                    manualDuration: manualDurationSeconds
+                });
+                if (!extractResult.success) {
+                    throw new Error(extractResult.error || 'Failed to extract audio');
+                }
+                audioPath = extractResult.audioPath;
+            }
+
+            // Step 2: Start Groq Whisper transcription with key pool
+            setStatus('transcribing');
+            setProgress({ stage: 'transcribing', message: 'Uploading to Groq Whisper...', percent: 0 });
 
             const result = await window.api.groqTranscribe({
                 audioPath: audioPath,

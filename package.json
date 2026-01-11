@@ -1,6 +1,6 @@
 {
   "name": "proflow-studio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "ProFlow Studio - Professional Workflow Tools for Media & Documents",
   "main": "./out/main/index.js",
   "author": "jonshon",
@@ -26,6 +26,7 @@
     "decompress": "^4.2.1",
     "docx": "^9.5.1",
     "electron-store": "^11.0.2",
+    "electron-updater": "^6.7.3",
     "ffmpeg-static": "^5.2.0",
     "fluent-ffmpeg": "^2.1.2",
     "form-data": "^4.0.5",

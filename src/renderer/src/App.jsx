@@ -6,6 +6,7 @@ import DocumentConverter from './pages/DocumentConverter';
 import FileCompressor from './pages/FileCompressor';
 import WatermarkRemover from './components/WatermarkRemover';
 import AudioTranscriber from './pages/AudioTranscriber';
+import Changelog from './pages/Changelog';
 import Settings from './components/Settings';
 import AppMenu from './components/AppMenu';
 
@@ -21,7 +22,8 @@ function App() {
             document: 'Document Converter',
             compress: 'File Compressor',
             watermark: 'Watermark Remover',
-            transcribe: 'AI Transcriber'
+            transcribe: 'AI Transcriber',
+            changelog: 'What\'s New'
         };
         document.title = `ProFlow Studio - ${tabTitles[activeTab] || 'ProFlow Studio'}`;
     }, [activeTab]);
@@ -53,6 +55,9 @@ function App() {
                 </div>
                 <div style={{ display: activeTab === 'transcribe' ? 'block' : 'none', height: '100%' }}>
                     <AudioTranscriber />
+                </div>
+                <div style={{ display: activeTab === 'changelog' ? 'block' : 'none', height: '100%' }}>
+                    <Changelog />
                 </div>
             </main>
 

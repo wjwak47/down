@@ -5,6 +5,7 @@ import ytDlpService from './services/yt-dlp'
 import eudicService from './services/eudic'
 import geminiTranscribeService, { MODELS as GEMINI_MODELS } from './services/gemini-transcribe'
 import groqWhisperService from './services/groq-whisper'
+import autoUpdaterService from './services/auto-updater'
 import { extractAudio, getFfmpegPath, getAudioDuration, extractAudioSegment, mergeAudioFiles } from './utils/ffmpeg-helper'
 import { registerMediaConverter } from './modules/mediaConverter'
 
@@ -31,7 +32,7 @@ function createWindow() {
         height: 670,
         show: false,
         autoHideMenuBar: true,
-        title: 'ProFlow Studio v1.0.0',
+        title: 'ProFlow Studio v1.1.0',
         ...(process.platform === 'linux' ? {} : {}),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
@@ -44,6 +45,16 @@ function createWindow() {
 
     mainWindow.on('ready-to-show', () => {
         mainWindow.show()
+
+        // Initialize auto-updater with main window
+        autoUpdaterService.setMainWindow(mainWindow)
+
+        // Check for updates on startup (in production only)
+        if (!is.dev) {
+            setTimeout(() => {
+                autoUpdaterService.checkForUpdates()
+            }, 3000) // Wait 3 seconds after startup
+        }
     })
 
     mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -381,7 +392,7 @@ app.whenReady().then(() => {
         return result.filePaths[0];
     });
 
-    ipcMain.handle('transcribe:extract-audio', async (event, filePath) => {
+    ipcMain.handle('transcribe:extract-audio', async (event, filePath, options = {}) => {
         const os = require('os');
         const path = require('path');
         const outputPath = path.join(os.tmpdir(), `transcribe_${Date.now()}.mp3`);
@@ -389,7 +400,7 @@ app.whenReady().then(() => {
         try {
             await extractAudio(filePath, outputPath, (progress) => {
                 event.sender.send('transcribe:extract-progress', progress);
-            });
+            }, options.manualDuration);  // Pass manual duration if provided
             return { success: true, audioPath: outputPath };
         } catch (error) {
             return { success: false, error: error.message };
@@ -445,6 +456,12 @@ app.whenReady().then(() => {
             console.error('[Main] Failed to update Groq keys:', error);
             return { success: false, error: error.message };
         }
+    });
+
+    // Auto-updater IPC handlers
+    ipcMain.handle('app:check-for-updates', () => {
+        autoUpdaterService.checkForUpdates();
+        return { success: true };
     });
 
     ipcMain.handle('groq:transcribe', async (event, { audioPath, apiKeys, geminiApiKey, options }) => {

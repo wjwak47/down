@@ -99,6 +99,13 @@ const api = {
     groqOffListeners: () => {
         ipcRenderer.removeAllListeners('groq:progress');
         ipcRenderer.removeAllListeners('groq:key-status-update');
+    },
+
+    // App Update APIs
+    appCheckForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
+    onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_, data) => callback(data)),
+    appOffUpdateListeners: () => {
+        ipcRenderer.removeAllListeners('update-status');
     }
 }
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, FileVideo, FileText, Archive, Settings } from 'lucide-react';
+import { Download, FileVideo, FileText, Archive, Settings, Sparkles } from 'lucide-react';
 
 const NavItem = ({ id, icon: Icon, label, active, onClick }) => (
     <button
@@ -47,7 +47,10 @@ const Navigation = ({ activeTab, onTabChange }) => {
         { id: 'document', label: 'Document Converter', icon: FileText },
 
         // 通用工具
-        { id: 'compress', label: 'File Compressor', icon: Archive }
+        { id: 'compress', label: 'File Compressor', icon: Archive },
+
+        // 更新日志
+        { id: 'changelog', label: 'What\'s New', icon: Sparkles }
     ];
 
     return (
@@ -59,7 +62,7 @@ const Navigation = ({ activeTab, onTabChange }) => {
                     </div>
                     <div className="flex-1">
                         <h1 className="text-lg font-bold text-text-primary tracking-tight leading-tight">ProFlow Studio</h1>
-                        <p className="text-[10px] text-gray-400">v1.0.0 | by jonshon</p>
+                        <p className="text-[10px] text-gray-400">v1.1.0 | by jonshon</p>
                     </div>
                 </div>
             </div>

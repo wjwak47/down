@@ -13,6 +13,13 @@ files:
   - "!resources/bin-win/*"
   - "!resources/bin-mac/*"
 
+publish:
+  provider: github
+  owner: wjwak47
+  repo: down
+  releaseType: release
+
+
 extraResources:
   - from: resources/bin-${os}
     to: bin

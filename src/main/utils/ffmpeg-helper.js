@@ -50,7 +50,7 @@ export const createCommand = async (input) => {
  * @param {function} onProgress - Progress callback
  * @returns {Promise<string>} - Path to extracted audio file
  */
-export const extractAudio = async (inputPath, outputPath, onProgress) => {
+export const extractAudio = async (inputPath, outputPath, onProgress, manualDurationSeconds = null) => {
     const ffmpegInstance = await initFfmpeg();
     const fs = await import('fs');
     const path = await import('path');
@@ -80,13 +80,21 @@ export const extractAudio = async (inputPath, outputPath, onProgress) => {
     console.log(`[FFmpeg] Estimated duration from size: ${estimatedDuration.toFixed(0)}s`);
     console.log(`[FFmpeg] ffprobe reported duration: ${extractedDuration}s`);
 
-    // Get video duration using ffprobe
-    const videoDuration = await new Promise((resolve, reject) => {
-        ffmpegInstance.ffprobe(inputPath, (err, metadata) => {
-            if (err) reject(err);
-            else resolve(metadata.format.duration || 0);
+    // Determine真实时长: manual duration takes precedence
+    let videoDuration;
+    if (manualDurationSeconds) {
+        console.log(`[FFmpeg] ⏰ Using MANUAL DURATION: ${manualDurationSeconds}s`);
+        videoDuration = manualDurationSeconds;
+    } else {
+        // Get video duration using ffprobe
+        videoDuration = await new Promise((resolve, reject) => {
+            ffmpegInstance.ffprobe(inputPath, (err, metadata) => {
+                if (err) reject(err);
+                else resolve(metadata.format.duration || 0);
+            });
         });
-    });
+        console.log(`[FFmpeg] Auto-detected video duration: ${videoDuration}s`);
+    }
 
     console.log(`[FFmpeg] Video duration: ${videoDuration}s, Extracted: ${extractedDuration}s`);
     console.log(`[FFmpeg] Difference: ${(videoDuration - extractedDuration).toFixed(1)}s`);

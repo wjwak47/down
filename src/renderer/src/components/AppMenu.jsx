@@ -23,10 +23,11 @@ const AppMenu = ({ onOpenSettings }) => {
         if (action === 'settings') {
             onOpenSettings();
         } else if (action === 'about') {
-            // Show about dialog (placeholder for now)
-            alert('MultiTool v1.0.0\nCreated with Electron & React');
+            // Show about dialog
+            alert('ProFlow Studio v1.1.0\nCreated with Electron & React');
         } else if (action === 'update') {
-            alert('Checking for updates...');
+            // Call real update check
+            window.api.appCheckForUpdates();
         }
     };
 
