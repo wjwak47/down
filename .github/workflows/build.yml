@@ -128,5 +128,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          overwrite: true  # Allow updating existing releases
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
