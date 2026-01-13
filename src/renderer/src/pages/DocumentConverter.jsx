@@ -1,206 +1,247 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Image as ImageIcon, Upload, X, Play, FileSpreadsheet } from 'lucide-react';
-import PageHeader from '../components/PageHeader';
 
-const DocumentConverter = () => {
+const DocumentConverter = ({ pendingFiles = [], onClearPending }) => {
     const [files, setFiles] = useState([]);
-    const [targetFormat, setTargetFormat] = useState('docx');
+    const [targetFormat, setTargetFormat] = useState('pdf');
     const [converting, setConverting] = useState(false);
     const [progress, setProgress] = useState({});
-    const [isDragging, setIsDragging] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
 
     useEffect(() => {
         const handleProgress = ({ id, file, status, percent }) => {
-            setProgress(prev => ({
-                ...prev,
-                [file]: { status, percent: Math.round(percent || 0) }
-            }));
+            setProgress(prev => ({ ...prev, [file]: { status, percent: Math.round(percent || 0) } }));
         };
-
         const handleComplete = ({ id, file, success, error, outputPath }) => {
-            setProgress(prev => ({
-                ...prev,
-                [file]: {
-                    status: success ? 'completed' : 'error',
-                    percent: 100,
-                    error,
-                    outputPath
-                }
-            }));
+            setProgress(prev => ({ ...prev, [file]: { status: success ? 'completed' : 'failed', percent: 100, error, outputPath } }));
             setConverting(false);
         };
-
         window.api.onDocProgress(handleProgress);
         window.api.onDocComplete(handleComplete);
-
-        return () => { };
+        return () => {};
     }, []);
 
-    const handleSelectFiles = async () => {
-        const selectedPaths = await window.api.docSelectFiles();
-        if (selectedPaths && selectedPaths.length > 0) {
-            const newFiles = selectedPaths.filter(p => !files.includes(p));
-            setFiles([...files, ...newFiles]);
+    useEffect(() => {
+        if (pendingFiles?.length > 0) {
+            setFiles(prev => [...prev, ...pendingFiles.filter(p => !prev.includes(p))]);
+            onClearPending?.();
         }
-    };
+    }, [pendingFiles]);
 
-    const handleRemoveFile = (path) => {
-        setFiles(files.filter(f => f !== path));
-        const newProgress = { ...progress };
-        delete newProgress[path];
-        setProgress(newProgress);
+    const handleSelectFiles = async () => {
+        const paths = await window.api.docSelectFiles();
+        if (paths?.length > 0) setFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
     };
 
     const handleConvert = () => {
         if (files.length === 0) return;
-
         setConverting(true);
-        const id = Date.now().toString();
-
         const initialProgress = {};
-        files.forEach(f => {
-            initialProgress[f] = { status: 'pending', percent: 0 };
-        });
+        files.forEach(f => { initialProgress[f] = { status: 'processing', percent: 0 }; });
         setProgress(prev => ({ ...prev, ...initialProgress }));
-
-        window.api.docConvert(files, targetFormat, {}, id);
+        window.api.docConvert(files, targetFormat, {}, Date.now().toString());
     };
 
-    const handleDragOver = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(true);
-    };
-
-    const handleDragLeave = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(false);
-    };
-
-    const handleDrop = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(false);
-
-        const droppedFiles = Array.from(e.dataTransfer.files);
-        const filePaths = droppedFiles.map(f => f.path);
-
-        if (filePaths.length > 0) {
-            const newFiles = filePaths.filter(p => !files.includes(p));
-            setFiles([...files, ...newFiles]);
-        }
-    };
+    const handleRemoveFile = (index) => setFiles(files.filter((_, i) => i !== index));
 
     const formats = [
-        { value: 'pdf', label: 'PDF' },
-        { value: 'docx', label: 'Word' },
-        { value: 'xlsx', label: 'Excel' },
-        { value: 'html', label: 'HTML' },
-        { value: 'txt', label: 'Text' },
-        { value: 'csv', label: 'CSV' },
-        { value: 'json', label: 'JSON' },
-        { value: 'jpg', label: 'JPG' },
-        { value: 'png', label: 'PNG' },
-        { value: 'webp', label: 'WebP' },
+        { value: 'pdf', label: 'PDF', icon: 'picture_as_pdf', desc: 'Portable Document' },
+        { value: 'docx', label: 'Word', icon: 'description', desc: 'Microsoft Word' },
+        { value: 'xlsx', label: 'Excel', icon: 'table_chart', desc: 'Microsoft Excel' },
+        { value: 'html', label: 'HTML', icon: 'code', desc: 'Web Page' },
     ];
 
+    // Clean professional blue icon style
+    const getFileIcon = (fileName) => {
+        const ext = fileName.split('.').pop().toLowerCase();
+        if (['pdf'].includes(ext)) return { icon: 'picture_as_pdf', color: 'text-[#2196F3]', bg: 'bg-[#E3F2FD] dark:bg-blue-900/30' };
+        if (['doc', 'docx'].includes(ext)) return { icon: 'description', color: 'text-[#2196F3]', bg: 'bg-[#E3F2FD] dark:bg-blue-900/30' };
+        if (['xls', 'xlsx'].includes(ext)) return { icon: 'table_chart', color: 'text-[#2196F3]', bg: 'bg-[#E3F2FD] dark:bg-blue-900/30' };
+        if (['ppt', 'pptx'].includes(ext)) return { icon: 'slideshow', color: 'text-[#2196F3]', bg: 'bg-[#E3F2FD] dark:bg-blue-900/30' };
+        return { icon: 'article', color: 'text-slate-400', bg: 'bg-slate-50 dark:bg-slate-800/50' };
+    };
+
+    const completedCount = files.filter(f => progress[f]?.status === 'completed').length;
+
     return (
-        <div className="h-full flex flex-col p-6 bg-bg-app overflow-y-auto">
-            <PageHeader title="Document Converter">
-                <select
-                    value={targetFormat}
-                    onChange={(e) => setTargetFormat(e.target.value)}
-                    className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-text-primary focus:outline-none focus:ring-2 focus:ring-primary shadow-sm hover:shadow transition-shadow min-w-[120px]"
-                    disabled={converting}
-                >
-                    {formats.map(f => (
-                        <option key={f.value} value={f.value}>{f.label}</option>
-                    ))}
-                </select>
-                <button
-                    onClick={handleConvert}
-                    disabled={files.length === 0 || converting}
-                    className={`flex items-center gap-2 px-5 py-2 rounded-lg font-medium text-white transition-all shadow-sm hover:shadow-md whitespace-nowrap
-              ${files.length === 0 || converting
-                            ? 'bg-gray-300 cursor-not-allowed'
-                            : 'bg-primary hover:bg-primary-hover'}`}
-                >
-                    <Play size={16} />
-                    {converting ? 'Converting...' : 'Convert'}
-                </button>
-            </PageHeader>
-
-            <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col min-h-[300px]">
-                {files.length === 0 ? (
-                    <div
-                        className={`flex-1 flex flex-col items-center justify-center cursor-pointer transition-colors border-2 border-dashed m-4 rounded-xl ${isDragging
-                            ? 'bg-blue-50 border-primary'
-                            : 'border-transparent hover:border-primary/20 hover:bg-gray-50'
-                            }`}
-                        onClick={handleSelectFiles}
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                    >
-                        <div className="w-16 h-16 bg-blue-50 text-primary rounded-full flex items-center justify-center mb-4">
-                            <Upload size={32} />
-                        </div>
-                        <h3 className="text-lg font-semibold text-text-primary mb-2">Drop files here or click to upload</h3>
-                        <p className="text-text-secondary text-sm">Support PDF, Word, Excel, Images and more</p>
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#fafbfc] dark:bg-[#0d1117]">
+            {/* Header */}
+            <div className="px-8 py-5 border-b border-slate-200/60 dark:border-slate-800/60 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-xl font-semibold text-slate-800 dark:text-white tracking-tight">Document Converter</h1>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                            {files.length === 0 ? 'Convert documents between formats' : `${files.length} document${files.length > 1 ? 's' : ''} ready`}
+                        </p>
                     </div>
-                ) : (
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {files.map((file) => {
-                            const fileProgress = progress[file] || { status: 'idle', percent: 0 };
-                            const isError = fileProgress.status === 'error';
-                            const isDone = fileProgress.status === 'completed';
+                    {files.length > 0 && !converting && (
+                        <button onClick={() => { setFiles([]); setProgress({}); }}
+                            className="text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                            Clear all
+                        </button>
+                    )}
+                </div>
+            </div>
 
-                            return (
-                                <div key={file} className="bg-gray-50 rounded-lg p-4 flex items-center gap-4 group">
-                                    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-gray-400 shadow-sm">
-                                        <FileText size={20} />
-                                    </div>
-
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between mb-1">
-                                            <p className="text-sm font-medium text-text-primary truncate" title={file}>
-                                                {file.split(/[\\/]/).pop()}
-                                            </p>
-                                            <span className={`text-xs font-medium ${isError ? 'text-red-500' : isDone ? 'text-green-500' : 'text-text-secondary'
-                                                }`}>
-                                                {isError ? 'Failed' : isDone ? 'Completed' : fileProgress.status === 'processing' ? 'Processing...' : 'Ready'}
-                                            </span>
-                                        </div>
-
-                                        {isError && (
-                                            <p className="text-xs text-red-500 mt-1">{fileProgress.error}</p>
-                                        )}
-                                    </div>
-
-                                    <button
-                                        onClick={() => handleRemoveFile(file)}
-                                        className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
-                                        disabled={converting && fileProgress.status === 'processing'}
-                                    >
-                                        <X size={18} />
-                                    </button>
-                                </div>
-                            );
-                        })}
-
-                        <div className="pt-4 flex justify-center">
-                            <button
+            {/* Main Content */}
+            <div className="flex-1 overflow-auto">
+                <div className="max-w-4xl mx-auto px-8 py-8">
+                    {files.length === 0 ? (
+                        /* Empty State */
+                        <div className="space-y-8">
+                            {/* Drop Zone */}
+                            <div 
                                 onClick={handleSelectFiles}
-                                className="text-primary text-sm font-medium hover:underline flex items-center gap-1"
-                                disabled={converting}
+                                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                                onDragLeave={() => setDragOver(false)}
+                                onDrop={e => { e.preventDefault(); setDragOver(false); }}
+                                className={`rounded-2xl border-2 border-dashed p-16 cursor-pointer transition-all text-center
+                                    ${dragOver ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-slate-200 dark:border-slate-700 hover:border-primary/50 dark:hover:border-primary/50 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
                             >
-                                <Upload size={14} />
-                                Add more files
-                            </button>
+                                <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-slate-400 text-3xl">description</span>
+                                </div>
+                                <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">Drop your documents here</h3>
+                                <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">or click to browse</p>
+                                <div className="flex gap-3 justify-center flex-wrap">
+                                    <span className="text-[#E53935] text-xs font-semibold">PDF</span>
+                                    <span className="text-[#2196F3] text-xs font-semibold">Word</span>
+                                    <span className="text-[#4CAF50] text-xs font-semibold">Excel</span>
+                                    <span className="text-[#FF9800] text-xs font-semibold">PowerPoint</span>
+                                </div>
+                            </div>
+
+                            {/* Format Selection Grid */}
+                            <div>
+                                <h3 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-4">Convert to</h3>
+                                <div className="grid grid-cols-4 gap-3">
+                                    {formats.map(f => (
+                                        <button key={f.value} onClick={() => setTargetFormat(f.value)}
+                                            className={`p-4 rounded-xl border-2 transition-all text-center bg-white dark:bg-slate-800 ${
+                                                targetFormat === f.value 
+                                                    ? 'border-[#2196F3]' 
+                                                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}>
+                                            <span className={`material-symbols-outlined text-2xl mb-2 block ${
+                                                targetFormat === f.value ? 'text-[#2196F3]' : 'text-slate-400'}`}>{f.icon}</span>
+                                            <p className={`text-sm font-medium ${targetFormat === f.value ? 'text-[#2196F3]' : 'text-slate-600 dark:text-slate-400'}`}>{f.label}</p>
+                                            <p className="text-[10px] text-slate-400 mt-0.5">{f.desc}</p>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Features */}
+                            <div className="grid grid-cols-3 gap-4">
+                                {[
+                                    { icon: 'bolt', title: 'Fast Conversion', desc: 'Convert documents in seconds' },
+                                    { icon: 'high_quality', title: 'High Quality', desc: 'Preserve formatting & layout' },
+                                    { icon: 'lock', title: 'Secure', desc: 'Files processed locally' }
+                                ].map((item, i) => (
+                                    <div key={i} className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                        <span className="material-symbols-outlined text-[#2196F3] text-xl mb-2 block">{item.icon}</span>
+                                        <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">{item.title}</h4>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    ) : (
+                        /* File List */
+                        <div className="space-y-6">
+                            {/* Files */}
+                            <div className="space-y-2">
+                                {files.map((file, index) => {
+                                    const p = progress[file] || { status: 'ready', percent: 0 };
+                                    const fileName = file.split(/[\\/]/).pop();
+                                    const ext = fileName.split('.').pop().toUpperCase();
+                                    const fileStyle = getFileIcon(fileName);
+                                    
+                                    return (
+                                        <div key={index} className={`group p-4 rounded-xl border transition-all ${
+                                            p.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' :
+                                            p.status === 'processing' ? 'bg-primary/5 dark:bg-primary/10 border-primary/30 dark:border-primary/30' :
+                                            p.status === 'failed' ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700' :
+                                            'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'}`}
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${fileStyle.bg}`}>
+                                                    <span className={`material-symbols-outlined text-2xl ${fileStyle.color}`}>{fileStyle.icon}</span>
+                                                </div>
+                                                
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{fileName}</p>
+                                                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[10px] font-semibold rounded">{ext}</span>
+                                                        <span className="material-symbols-outlined text-slate-300 text-lg">arrow_forward</span>
+                                                        <span className="px-2 py-0.5 bg-primary/10 dark:bg-primary/20 text-primary text-[10px] font-semibold rounded">{targetFormat.toUpperCase()}</span>
+                                                    </div>
+                                                    
+                                                    {p.status === 'processing' ? (
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="flex-1 h-1.5 bg-primary/20 dark:bg-primary/30 rounded-full overflow-hidden">
+                                                                <div className="h-full bg-primary transition-all duration-300" style={{ width: `${p.percent}%` }}></div>
+                                                            </div>
+                                                            <span className="text-xs font-semibold text-primary w-10">{p.percent}%</span>
+                                                        </div>
+                                                    ) : (
+                                                        <p className={`text-xs font-medium ${
+                                                            p.status === 'completed' ? 'text-emerald-600 dark:text-emerald-400' :
+                                                            p.status === 'failed' ? 'text-red-600 dark:text-red-400' :
+                                                            'text-slate-400'}`}>
+                                                            {p.status === 'completed' ? '�?Converted successfully' : p.status === 'failed' ? '�?Conversion failed' : 'Ready to convert'}
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {!converting && (
+                                                    <button onClick={() => handleRemoveFile(index)}
+                                                        className="opacity-0 group-hover:opacity-100 p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all">
+                                                        <span className="material-symbols-outlined">close</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Add More */}
+                            {!converting && (
+                                <button onClick={handleSelectFiles}
+                                    className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 hover:text-primary hover:border-primary/50 transition-all text-sm font-medium flex items-center justify-center gap-2">
+                                    <span className="material-symbols-outlined text-lg">add</span>
+                                    Add more documents
+                                </button>
+                            )}
+
+                            {/* Format & Convert */}
+                            <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                                <div className="flex items-center gap-4">
+                                    <span className="text-sm text-slate-500 dark:text-slate-400">Convert to:</span>
+                                    <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                                        {formats.map(f => (
+                                            <button key={f.value} onClick={() => setTargetFormat(f.value)} disabled={converting}
+                                                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                                                    targetFormat === f.value 
+                                                        ? 'bg-white dark:bg-slate-700 text-primary shadow-sm' 
+                                                        : 'text-slate-500 hover:text-slate-700'}`}>
+                                                {f.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                
+                                <button onClick={handleConvert} disabled={converting || files.length === 0}
+                                    className="px-6 py-2.5 bg-gradient-to-r from-[#2196F3] to-[#42A5F5] hover:from-[#1E88E5] hover:to-[#2196F3] text-white font-medium rounded-xl  transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                                    {converting ? (
+                                        <><span className="material-symbols-outlined animate-spin">progress_activity</span>Converting {completedCount}/{files.length}</>
+                                    ) : (
+                                        <><span className="material-symbols-outlined">play_arrow</span>Convert All</>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

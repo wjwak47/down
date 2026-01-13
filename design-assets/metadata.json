@@ -1,0 +1,8 @@
+{
+  "name": "ProFlow Studio",
+  "description": "A premium productivity suite for creative production, file processing, and media management with AI-powered tools.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

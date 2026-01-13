@@ -1,10 +1,12 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, clipboard } from 'electron'
 import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import fs from 'fs'
+// Removed @electron-toolkit/utils due to compatibility issues - using native Electron APIs instead
 import ytDlpService from './services/yt-dlp'
 import eudicService from './services/eudic'
 import geminiTranscribeService, { MODELS as GEMINI_MODELS } from './services/gemini-transcribe'
 import groqWhisperService from './services/groq-whisper'
+import { convertToMP3 } from './services/groq-whisper-helpers'
 import autoUpdaterService from './services/auto-updater'
 import { extractAudio, getFfmpegPath, getAudioDuration, extractAudioSegment, mergeAudioFiles } from './utils/ffmpeg-helper'
 import { registerMediaConverter } from './modules/mediaConverter'
@@ -15,11 +17,31 @@ import { registerWatermarkRemover } from './modules/watermarkRemover'
 import gpuDetector from './services/gpuDetector'
 import gpuSettings from './services/gpuSettings'
 
-// Register modules
-registerMediaConverter();
-registerDocumentConverter();
-registerWatermarkRemover();
-// registerFileCompressor();
+// Note: Module registration is done inside app.whenReady()
+// isDev helper function - can't use app.isPackaged directly at module load time
+// Uses environment variables set by electron-vite during dev mode
+const getIsDev = () => {
+    // electron-vite sets ELECTRON_RENDERER_URL in dev mode
+    if (process.env['ELECTRON_RENDERER_URL']) return true;
+    // Fallback: check NODE_ENV
+    if (process.env.NODE_ENV === 'development') return true;
+    // In production builds, these won't be set
+    return false;
+};
+// Lazy evaluated variable for convenience
+let _isDev = null;
+const isDev = () => {
+    if (_isDev === null) {
+        try {
+            // If app is ready, use the official method
+            _isDev = !app.isPackaged;
+        } catch {
+            // Fallback to environment check
+            _isDev = getIsDev();
+        }
+    }
+    return _isDev;
+};
 
 // Suppress Electron internal warnings
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
@@ -27,12 +49,32 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 app.commandLine.appendSwitch('log-level', '3'); // 3 = FATAL only
 
 function createWindow() {
+    // 获取主显示器的工作区域大小
+    const { screen } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+
+    // 根据屏幕分辨率动态计算窗口尺寸
+    // 默认窗口大小为屏幕的 85%
+    const defaultWidth = Math.round(screenWidth * 0.85);
+    const defaultHeight = Math.round(screenHeight * 0.85);
+
+    // 最小窗口尺寸 - 根据屏幕分辨率动态计算
+    // 最小为屏幕的 60%，确保 UI 有足够空间显示
+    const minWidth = Math.round(screenWidth * 0.6);
+    const minHeight = Math.round(screenHeight * 0.6);
+
+    console.log(`[Window] Screen: ${screenWidth}x${screenHeight}, Default: ${defaultWidth}x${defaultHeight}, Min: ${minWidth}x${minHeight}`);
+
     const mainWindow = new BrowserWindow({
-        width: 900,
-        height: 670,
+        width: defaultWidth,
+        height: defaultHeight,
+        minWidth: minWidth,
+        minHeight: minHeight,
         show: false,
         autoHideMenuBar: true,
-        title: 'ProFlow Studio v1.1.0',
+        title: 'ProFlow Studio v1.1.2',
+        center: true,
         ...(process.platform === 'linux' ? {} : {}),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
@@ -50,7 +92,7 @@ function createWindow() {
         autoUpdaterService.setMainWindow(mainWindow)
 
         // Check for updates on startup (in production only)
-        if (!is.dev) {
+        if (!isDev()) {
             setTimeout(() => {
                 autoUpdaterService.checkForUpdates(true) // silent=true, don't show dialog if already latest
             }, 3000) // Wait 3 seconds after startup
@@ -62,7 +104,7 @@ function createWindow() {
         return { action: 'deny' }
     })
 
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    if (isDev() && process.env['ELECTRON_RENDERER_URL']) {
         mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
     } else {
         mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
@@ -92,11 +134,16 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required-user-a
 app.commandLine.appendSwitch('disable-site-isolation-trials');
 
 app.whenReady().then(() => {
-    electronApp.setAppUserModelId('com.electron')
+    // Register modules (must be done after app is ready)
+    registerMediaConverter();
+    registerDocumentConverter();
+    registerWatermarkRemover();
+    registerFileCompressor();
 
-    app.on('browser-window-created', (_, window) => {
-        optimizer.watchWindowShortcuts(window)
-    })
+    // Native Electron API instead of electronApp.setAppUserModelId
+    app.setAppUserModelId('com.proflow.studio')
+
+    // Window shortcuts watcher removed (was optimizer.watchWindowShortcuts)
 
     // Create HTTP proxy server
     const http = require('http');
@@ -211,6 +258,110 @@ app.whenReady().then(() => {
         return result.filePaths[0];
     });
 
+    // Open downloads folder - 100% reliable, no encoding issues
+    ipcMain.handle('open-downloads-folder', async () => {
+        try {
+            const downloadsPath = app.getPath('downloads');
+            console.log('[open-downloads-folder] Opening:', downloadsPath);
+            shell.openPath(downloadsPath);
+            return { success: true };
+        } catch (error) {
+            console.error('[open-downloads-folder] Error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Select video/audio files for transcription
+    ipcMain.handle('select-video-files', async () => {
+        const result = await dialog.showOpenDialog({
+            properties: ['openFile', 'multiSelections'],
+            filters: [
+                { name: 'Video Files', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'wmv', 'flv'] },
+                { name: 'Audio Files', extensions: ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'flac', 'wma'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+        if (result.canceled) return null;
+        return result.filePaths;
+    });
+
+    // Clipboard copy
+    ipcMain.handle('clipboard:copy', async (_, text) => {
+        try {
+            clipboard.writeText(text);
+            return { success: true };
+        } catch (error) {
+            console.error('[clipboard:copy] Error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Open file in folder
+    ipcMain.handle('open-folder', async (_, filePath) => {
+        console.log('[open-folder] Received path:', filePath);
+
+        if (!filePath) {
+            console.error('[open-folder] No file path provided');
+            return { success: false, error: 'No file path provided' };
+        }
+
+        if (!fs.existsSync(filePath)) {
+            console.error('[open-folder] Path does not exist:', filePath);
+            return { success: false, error: 'Path does not exist' };
+        }
+
+        try {
+            const stats = fs.statSync(filePath);
+            if (stats.isDirectory()) {
+                // If it's a directory, open it directly
+                console.log('[open-folder] Opening directory:', filePath);
+                shell.openPath(filePath);
+            } else {
+                // If it's a file, show it in its folder
+                console.log('[open-folder] Showing file in folder:', filePath);
+                shell.showItemInFolder(filePath);
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('[open-folder] Error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Save transcription files to the same directory as video
+    ipcMain.handle('save-transcription', async (_, { videoPath, srt, txt }) => {
+        try {
+            const path = require('path');
+            const dir = path.dirname(videoPath);
+            const baseName = path.basename(videoPath, path.extname(videoPath));
+
+            const srtPath = path.join(dir, `${baseName}.srt`);
+            const txtPath = path.join(dir, `${baseName}.txt`);
+
+            // Save SRT file
+            if (srt) {
+                fs.writeFileSync(srtPath, srt, 'utf-8');
+                console.log('[save-transcription] Saved SRT:', srtPath);
+            }
+
+            // Save TXT file
+            if (txt) {
+                fs.writeFileSync(txtPath, txt, 'utf-8');
+                console.log('[save-transcription] Saved TXT:', txtPath);
+            }
+
+            return {
+                success: true,
+                srtPath: srt ? srtPath : null,
+                txtPath: txt ? txtPath : null,
+                outputDir: dir
+            };
+        } catch (error) {
+            console.error('[save-transcription] Error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
     ipcMain.handle('get-video-info', async (_, url) => {
         return await ytDlpService.getVideoInfo(url);
     });
@@ -237,11 +388,7 @@ app.whenReady().then(() => {
 
         child.on('close', (code) => {
             event.reply('download-complete', { id, code });
-
-            if (code === 0) {
-                const downloadDir = options.downloadDir || app.getPath('downloads');
-                shell.openPath(downloadDir);
-            }
+            // User can manually open folder if needed
         });
     });
 
@@ -265,14 +412,25 @@ app.whenReady().then(() => {
             // The frontend handles the status update based on user action, 
             // but for natural completion/failure we send this.
 
-            const outputPath = child._outputPath || options.output;
+            // Try to get output path from multiple sources
+            let outputPath = null;
+            if (downloadInfo && downloadInfo.outputPath) {
+                outputPath = downloadInfo.outputPath;
+                console.log(`[Main] Got filePath from activeDownloads: ${outputPath}`);
+            } else if (child._outputPath) {
+                outputPath = child._outputPath;
+                console.log(`[Main] Got filePath from child process: ${outputPath}`);
+            } else {
+                // Fallback: construct expected path
+                const downloadDir = options.downloadDir || app.getPath('downloads');
+                console.log(`[Main] filePath unavailable, using download dir: ${downloadDir}`);
+                outputPath = downloadDir; // Will be used to open folder, not specific file
+            }
+
             event.reply('download-complete', { id, code, filePath: outputPath });
 
-            if (code === 0) {
-                if (outputPath) {
-                    shell.showItemInFolder(outputPath);
-                }
-            }
+            // Don't auto-open folder - user can manually click "Open Folder" button
+            // This avoids encoding issues and gives user control
         });
     });
 
@@ -450,6 +608,7 @@ app.whenReady().then(() => {
     // Hot-update key pool (add keys during transcription)
     ipcMain.handle('groq:update-keys', async (_, apiKeys) => {
         try {
+            console.log('[Main] groq:update-keys called with', apiKeys?.length, 'keys');
             groqWhisperService.updateKeyPool(apiKeys);
             return { success: true };
         } catch (error) {
@@ -460,61 +619,438 @@ app.whenReady().then(() => {
 
     // Auto-updater IPC handlers
     ipcMain.handle('app:check-for-updates', () => {
+        // Auto-updater only works in production (packaged app)
+        if (isDev()) {
+            const { dialog } = require('electron');
+            dialog.showMessageBox({
+                type: 'info',
+                title: 'Development Mode',
+                message: 'Auto-update is disabled in development mode',
+                detail: 'Please build and package the app to test auto-update functionality.'
+            });
+            return { success: false, reason: 'dev-mode' };
+        }
+
         autoUpdaterService.checkForUpdates(false); // Manual check, show dialog even if already latest
         return { success: true };
     });
 
-    ipcMain.handle('groq:transcribe', async (event, { audioPath, apiKeys, geminiApiKey, options }) => {
+    ipcMain.handle('groq:transcribe', async (event, params) => {
         try {
-            // Initialize with key pool
-            groqWhisperService.initializeWithKeyPool(apiKeys);
+            console.log('[Main] 🟢 groq:transcribe handler invoked');
+            const { audioPath, apiKeys, geminiApiKey, geminiModel, options } = params || {};
+            console.log(`[Main] Input params: path=${audioPath}, keys=${apiKeys?.length}, geminiModel=${geminiModel}, options=${JSON.stringify(options)}`);
 
-            // Set FFmpeg path for audio chunking
-            const ffmpegPath = await getFfmpegPath();
-            groqWhisperService.setFfmpegPath(ffmpegPath);
-
-            const result = await groqWhisperService.transcribe(
-                audioPath,
-                options,
-                (progress) => {
-                    event.sender.send('groq:progress', progress);
-                }
-            );
-
-            // Clean up temp audio file
-            const fs = require('fs');
-            try {
-                if (fs.existsSync(audioPath)) {
-                    fs.unlinkSync(audioPath);
-                }
-            } catch (e) {
-                console.log('Failed to cleanup temp audio:', e.message);
+            if (!apiKeys || !Array.isArray(apiKeys) || apiKeys.length === 0) {
+                console.error('[Main] ❌ No API keys provided');
+                return { success: false, error: '[Main] No API keys provided' };
             }
 
-            // Auto post-process with Gemini to fix errors
-            if (result.success && geminiApiKey && result.segments && result.segments.length > 0) {
-                event.sender.send('groq:progress', { stage: 'polishing', message: 'AI is correcting errors...' });
+            // Initialize Groq Service
+            console.log('[Main] Initializing Groq Service...');
+            groqWhisperService.initializeWithKeyPool(apiKeys);
+
+            console.log('[Main] Getting FFmpeg path...');
+            const ffmpegPath = await getFfmpegPath();
+            console.log(`[Main] FFmpeg path resolved: ${ffmpegPath}`);
+            groqWhisperService.setFfmpegPath(ffmpegPath);
+
+            let result;
+            const { transcriptionMode = 'standard' } = options;
+
+            // GEMINI DIRECT MODE: Skip Whisper entirely, use Gemini for everything
+            if (transcriptionMode === 'gemini' && geminiApiKey && geminiApiKey.trim() !== '') {
+                console.log('[Main] GEMINI DIRECT MODE - Bypassing Whisper, using Gemini only...');
+                event.sender.send('groq:progress', { stage: 'transcribing', message: '🤖 Gemini is transcribing audio...', percent: 10 });
 
                 try {
-                    const polishedSegments = await postProcessWithGemini(geminiApiKey, result.segments, options.language);
+                    // Get audio duration for better timestamp estimation
+                    const duration = await groqWhisperService.getAudioDuration(audioPath);
+                    console.log('[Main] Audio duration:', duration, 'seconds');
 
-                    // Regenerate SRT and text with corrected content
-                    result.segments = polishedSegments;
-                    result.srt = groqWhisperService.generateSrt(polishedSegments);
-                    result.plainText = groqWhisperService.generatePlainText(polishedSegments);
-                    result.text = polishedSegments.map(s => s.text).join(' ');
+                    event.sender.send('groq:progress', { stage: 'transcribing', message: '🤖 Gemini analyzing audio...', percent: 30 });
 
-                    console.log('[Gemini] Post-processing complete');
+                    const geminiResult = await geminiDirectTranscribe(geminiApiKey, audioPath, options.language, geminiModel || 'gemini-2.0-flash', duration);
+
+                    if (geminiResult.success && geminiResult.segments && geminiResult.segments.length > 0) {
+                        event.sender.send('groq:progress', { stage: 'complete', message: '✅ Gemini transcription complete!', percent: 100 });
+
+                        result = {
+                            success: true,
+                            segments: geminiResult.segments,
+                            srt: groqWhisperService.generateSrt(geminiResult.segments),
+                            plainText: groqWhisperService.generatePlainText(geminiResult.segments),
+                            text: geminiResult.segments.map(s => s.text).join(' '),
+                            transcription: geminiResult.segments.map(s => s.text).join('\n')
+                        };
+                        console.log('[Main] Gemini Direct mode completed, segments:', result.segments.length);
+                    } else {
+                        console.error('[Main] Gemini Direct failed, falling back to standard mode');
+                        event.sender.send('groq:progress', { stage: 'transcribing', message: '⚠️ Gemini failed, using Whisper...', percent: 20 });
+                        // Fallback to standard Whisper
+                        result = await groqWhisperService.transcribe(
+                            audioPath,
+                            options,
+                            (progress) => event.sender.send('groq:progress', progress)
+                        );
+                    }
                 } catch (e) {
-                    console.error('[Gemini] Post-processing failed:', e.message);
-                    // Continue with original result if post-processing fails
+                    console.error('[Main] Gemini Direct mode error:', e.message);
+                    event.sender.send('groq:progress', { stage: 'transcribing', message: '⚠️ Gemini failed, using Whisper...', percent: 20 });
+                    // Fallback to standard Whisper
+                    result = await groqWhisperService.transcribe(
+                        audioPath,
+                        options,
+                        (progress) => event.sender.send('groq:progress', progress)
+                    );
                 }
+            } else if (transcriptionMode === 'dual' && geminiApiKey && geminiApiKey.trim() !== '') {
+                // DUAL VERIFICATION MODE: Parallel processing (faster)
+                console.log('[Main] DUAL VERIFICATION MODE - Running Whisper + Gemini in parallel...');
+                event.sender.send('groq:progress', { stage: 'preparing', message: '🔄 Preparing audio for parallel processing...', percent: 5 });
+
+                // Helper function to remove garbled Unicode characters from text
+                const sanitizeGarbledText = (text) => {
+                    if (!text) return text;
+                    // Remove geometric shapes, block elements, and replacement chars
+                    return text
+                        .replace(/[\u25A0-\u25FF]/g, '') // Geometric shapes (□◇◆○●■等)
+                        .replace(/[\u2580-\u259F]/g, '') // Block elements
+                        .replace(/[\uFFFD\uFFFE\uFFFF]/g, '') // Unicode replacement chars (�)
+                        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // Control chars
+                        .replace(/[◐◑◒◓◔◕◖◗]/g, '') // Additional circle variants
+                        .replace(/[\u2600-\u26FF]/g, '') // Miscellaneous symbols
+                        .replace(/[\u2700-\u27BF]/g, '') // Dingbats
+                        .replace(/\?{2,}/g, '') // Multiple question marks (?? or ???)
+                        .replace(/\s{2,}/g, ' ') // Multiple spaces to single
+                        .trim();
+                };
+
+                // Final cleanup function for segments before output
+                const cleanupSegments = (segments) => {
+                    return segments.map(seg => ({
+                        ...seg,
+                        text: sanitizeGarbledText(seg.text)
+                    })).filter(seg => seg.text && seg.text.length > 0);
+                };
+
+                try {
+                    // STEP 1: Pre-convert large files to MP3 to avoid memory crash
+                    // Both Whisper and Gemini will use this smaller file
+                    let preparedAudioPath = audioPath;
+                    const ext = path.extname(audioPath).toLowerCase();
+                    const fileStats = fs.statSync(audioPath);
+                    const fileSizeMB = fileStats.size / (1024 * 1024);
+
+                    // Convert if not already MP3 or if file is large (>100MB)
+                    if (ext !== '.mp3' || fileSizeMB > 100) {
+                        console.log(`[Main] File is ${fileSizeMB.toFixed(1)}MB, pre-converting for stability...`);
+                        event.sender.send('groq:progress', { stage: 'preparing', message: `🔄 Converting ${fileSizeMB.toFixed(0)}MB file to MP3...`, percent: 5 });
+                        const ffmpegPath = await getFfmpegPath();
+                        preparedAudioPath = await convertToMP3(audioPath, ffmpegPath);
+                        console.log('[Main] Pre-conversion complete:', preparedAudioPath);
+                    }
+
+                    event.sender.send('groq:progress', { stage: 'transcribing', message: '🚀 Whisper + Gemini running in parallel...', percent: 10 });
+
+                    // STEP 2: Run both in parallel using Promise.allSettled
+                    // Each task is wrapped in its own try-catch for extra safety
+                    const whisperPromise = (async () => {
+                        try {
+                            return await groqWhisperService.transcribe(
+                                preparedAudioPath, // Use converted file
+                                options,
+                                (progress) => {
+                                    const scaledPercent = 10 + Math.round((progress.percent || 0) * 0.4);
+                                    event.sender.send('groq:progress', {
+                                        stage: 'transcribing',
+                                        message: `🎙️ Whisper: ${progress.message || 'Processing...'}`,
+                                        percent: scaledPercent
+                                    });
+                                }
+                            );
+                        } catch (e) {
+                            console.error('[Main] Whisper parallel error:', e.message);
+                            return { success: false, error: e.message };
+                        }
+                    })();
+
+                    const geminiPromise = (async () => {
+                        try {
+                            return await geminiAudioTranscribe(geminiApiKey, preparedAudioPath, options.language, geminiModel || 'gemini-2.0-flash');
+                        } catch (e) {
+                            console.error('[Main] Gemini parallel error:', e.message);
+                            return { success: false, error: e.message };
+                        }
+                    })();
+
+                    const results = await Promise.allSettled([whisperPromise, geminiPromise]);
+
+                    console.log('[Main] Parallel processing completed. Whisper:', results[0].status, 'Gemini:', results[1].status);
+
+                    // Extract results safely
+                    const whisperResult = results[0].status === 'fulfilled' ? results[0].value : { success: false, error: results[0].reason?.message || 'Unknown error' };
+                    const geminiResult = results[1].status === 'fulfilled' ? results[1].value : { success: false, error: results[1].reason?.message || 'Unknown error' };
+
+                    if (whisperResult && whisperResult.success && geminiResult && geminiResult.success && geminiResult.text) {
+                        event.sender.send('groq:progress', { stage: 'polishing', message: '✨ Combining results...', percent: 90 });
+
+                        // Combine: Whisper timestamps + Gemini text
+                        const whisperSegments = whisperResult.segments || [];
+                        const geminiFullText = (geminiResult.text || '').trim();
+
+                        if (whisperSegments.length > 0 && geminiFullText.length > 0) {
+                            // Sanitize Gemini text before merging to remove any garbled chars
+                            const sanitizedGeminiText = sanitizeGarbledText(geminiFullText);
+                            console.log('[Main] Gemini text sanitized:', geminiFullText.length, '->', sanitizedGeminiText.length, 'chars');
+
+                            // Helper function to detect garbled characters in a segment
+                            const hasGarbledChars = (text) => {
+                                if (!text) return false;
+                                const garbledPatterns = [
+                                    /[\uFFFD\uFFFE\uFFFF]/,           // Unicode replacement chars
+                                    /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/, // Control chars
+                                    /[\u25A0-\u25FF]/,                // Geometric shapes (□◇◆○●■等)
+                                    /[\u2580-\u259F]/,                // Block elements
+                                    /\?{3,}/,                          // ??? repeated question marks
+                                    /[□◇◆○●■▪▫◐◑◒◓◔◕◖◗]+/,          // Common placeholder shapes
+                                ];
+                                return garbledPatterns.some(pattern => pattern.test(text));
+                            };
+
+                            // Use Gemini to intelligently merge results instead of simple proportion-based split
+                            // This approach asks Gemini to align the text with timestamps
+                            try {
+                                event.sender.send('groq:progress', { stage: 'polishing', message: '✨ Aligning timestamps with corrected text...', percent: 92 });
+
+                                const verifyResult = await dualVerifyAndCorrect(
+                                    geminiApiKey,
+                                    whisperSegments,
+                                    sanitizedGeminiText,
+                                    geminiModel || 'gemini-2.0-flash'
+                                );
+
+                                if (verifyResult.success && verifyResult.segments && verifyResult.segments.length > 0) {
+                                    // Apply final cleanup to remove any remaining garbled characters
+                                    const filteredSegments = cleanupSegments(verifyResult.segments);
+
+                                    result = {
+                                        success: true,
+                                        segments: filteredSegments,
+                                        srt: groqWhisperService.generateSrt(filteredSegments),
+                                        plainText: groqWhisperService.generatePlainText(filteredSegments),
+                                        text: filteredSegments.map(s => s.text).join(' '),
+                                        transcription: filteredSegments.map(s => s.text).join('\n')
+                                    };
+
+                                    console.log('[Main] Dual verification with intelligent alignment completed successfully');
+                                    event.sender.send('groq:progress', { stage: 'complete', message: '✅ Dual verification complete!', percent: 100 });
+                                } else {
+                                    // Fallback to proportion-based merge if Gemini alignment fails
+                                    console.log('[Main] Gemini alignment failed, using proportion-based merge');
+                                    const totalWhisperChars = whisperSegments.reduce((sum, s) => sum + (s.text || '').length, 0);
+                                    const geminiChars = sanitizedGeminiText.length;
+
+                                    let currentPos = 0;
+                                    const newSegments = whisperSegments.map((seg, i) => {
+                                        const segProportion = (seg.text || '').length / totalWhisperChars;
+                                        let charsForThisSeg = Math.round(geminiChars * segProportion);
+
+                                        if (i === whisperSegments.length - 1) {
+                                            charsForThisSeg = geminiChars - currentPos;
+                                        }
+
+                                        let segText = sanitizedGeminiText.substring(currentPos, currentPos + charsForThisSeg);
+
+                                        if (i < whisperSegments.length - 1 && currentPos + charsForThisSeg < geminiChars) {
+                                            const remaining = sanitizedGeminiText.substring(currentPos + charsForThisSeg);
+                                            const breakMatch = remaining.match(/^[\s，。、？！,.?!\s]*/);
+                                            if (breakMatch && breakMatch[0]) {
+                                                segText += breakMatch[0].trim();
+                                                charsForThisSeg += breakMatch[0].length;
+                                            }
+                                        }
+
+                                        currentPos += charsForThisSeg;
+
+                                        return {
+                                            start: seg.start,
+                                            end: seg.end,
+                                            text: segText.trim()
+                                        };
+                                    });
+
+                                    const filteredSegments = cleanupSegments(newSegments);
+
+                                    result = {
+                                        success: true,
+                                        segments: filteredSegments,
+                                        srt: groqWhisperService.generateSrt(filteredSegments),
+                                        plainText: groqWhisperService.generatePlainText(filteredSegments),
+                                        text: filteredSegments.map(s => s.text).join(' '),
+                                        transcription: filteredSegments.map(s => s.text).join('\n')
+                                    };
+
+                                    console.log('[Main] Dual verification (proportion-based fallback) completed');
+                                    event.sender.send('groq:progress', { stage: 'complete', message: '✅ Dual verification complete!', percent: 100 });
+                                }
+                            } catch (alignError) {
+                                console.error('[Main] Alignment error:', alignError.message);
+                                // Fallback to proportion-based merge
+                                const totalWhisperChars = whisperSegments.reduce((sum, s) => sum + (s.text || '').length, 0);
+                                const geminiChars = sanitizedGeminiText.length;
+
+                                let currentPos = 0;
+                                const newSegments = whisperSegments.map((seg, i) => {
+                                    const segProportion = (seg.text || '').length / totalWhisperChars;
+                                    let charsForThisSeg = Math.round(geminiChars * segProportion);
+
+                                    if (i === whisperSegments.length - 1) {
+                                        charsForThisSeg = geminiChars - currentPos;
+                                    }
+
+                                    let segText = sanitizedGeminiText.substring(currentPos, currentPos + charsForThisSeg);
+
+                                    if (i < whisperSegments.length - 1 && currentPos + charsForThisSeg < geminiChars) {
+                                        const remaining = sanitizedGeminiText.substring(currentPos + charsForThisSeg);
+                                        const breakMatch = remaining.match(/^[\s，。、？！,.?!\s]*/);
+                                        if (breakMatch && breakMatch[0]) {
+                                            segText += breakMatch[0].trim();
+                                            charsForThisSeg += breakMatch[0].length;
+                                        }
+                                    }
+
+                                    currentPos += charsForThisSeg;
+
+                                    return {
+                                        start: seg.start,
+                                        end: seg.end,
+                                        text: segText.trim()
+                                    };
+                                });
+
+                                const filteredSegments = cleanupSegments(newSegments);
+
+                                result = {
+                                    success: true,
+                                    segments: filteredSegments,
+                                    srt: groqWhisperService.generateSrt(filteredSegments),
+                                    plainText: groqWhisperService.generatePlainText(filteredSegments),
+                                    text: filteredSegments.map(s => s.text).join(' '),
+                                    transcription: filteredSegments.map(s => s.text).join('\n')
+                                };
+
+                                console.log('[Main] Dual verification (error fallback) completed');
+                                event.sender.send('groq:progress', { stage: 'complete', message: '✅ Dual verification complete!', percent: 100 });
+                            }
+                        } else {
+                            result = whisperResult;
+                            event.sender.send('groq:progress', { stage: 'complete', message: '✅ Complete (Whisper only)', percent: 100 });
+                        }
+                    } else if (whisperResult && whisperResult.success) {
+                        console.log('[Main] Gemini failed in parallel mode, using Whisper result');
+                        result = whisperResult;
+                        event.sender.send('groq:progress', { stage: 'complete', message: '⚠️ Gemini failed - Using Whisper only', percent: 100 });
+                    } else {
+                        console.error('[Main] Both Whisper and Gemini failed');
+                        result = { success: false, error: 'Both Whisper and Gemini failed' };
+                        event.sender.send('groq:progress', { stage: 'complete', message: '❌ Transcription failed', percent: 100 });
+                    }
+                } catch (e) {
+                    console.error('[Main] Parallel processing error:', e.message, e.stack);
+                    event.sender.send('groq:progress', { stage: 'error', message: '⚠️ Error, falling back to Whisper...', percent: 50 });
+                    result = await groqWhisperService.transcribe(
+                        audioPath,
+                        options,
+                        (progress) => event.sender.send('groq:progress', progress)
+                    );
+                }
+            } else {
+                // STANDARD MODE: Use Whisper first
+                console.log('[Main] STANDARD MODE - Calling groqWhisperService.transcribe...');
+                result = await groqWhisperService.transcribe(
+                    audioPath,
+                    options,
+                    (progress) => {
+                        console.log(`[Main] Progress received: ${JSON.stringify(progress)}`);
+                        event.sender.send('groq:progress', progress);
+                    }
+                );
+            }
+            console.log(`[Main] Transcribe returned. Success: ${result.success}`);
+
+            // Auto post-process with Gemini for STANDARD mode only (Dual is handled above in parallel)
+            if (result.success && geminiApiKey && geminiApiKey.trim() !== '' && result.segments && result.segments.length > 0) {
+                const { transcriptionMode = 'standard' } = options;
+
+                // Only do post-processing for Standard mode (Dual and Gemini are already complete)
+                if (transcriptionMode === 'standard') {
+                    // STANDARD MODE: Text correction only
+                    console.log('[Main] STANDARD MODE - Starting text correction with model:', geminiModel || 'gemini-2.0-flash');
+                    event.sender.send('groq:progress', { stage: 'polishing', message: 'AI correcting text...', percent: 90 });
+                    try {
+                        const polishedSegments = await postProcessWithGemini(geminiApiKey, result.segments, options.language, geminiModel, audioPath);
+                        result.segments = polishedSegments;
+                        result.srt = groqWhisperService.generateSrt(polishedSegments);
+                        result.plainText = groqWhisperService.generatePlainText(polishedSegments);
+                        result.text = polishedSegments.map(s => s.text).join(' ');
+                        result.transcription = polishedSegments.map(s => s.text).join('\n');
+                        console.log('[Main] Text correction completed');
+                        event.sender.send('groq:progress', { stage: 'complete', message: 'Transcription complete!', percent: 100 });
+                    } catch (e) {
+                        console.error('[Gemini] Text correction failed:', e.message);
+                        event.sender.send('groq:progress', { stage: 'complete', message: '⚠️ Gemini unavailable - Using Whisper output only', percent: 100 });
+                    }
+                }
+            }
+
+            // FINAL CLEANUP: Remove any remaining garbled characters before returning
+            if (result && result.success && result.segments) {
+                const finalSanitize = (text) => {
+                    if (!text) return text;
+                    return text
+                        .replace(/[\u25A0-\u25FF]/g, '') // Geometric shapes (□◇◆○●■等)
+                        .replace(/[\u2580-\u259F]/g, '') // Block elements
+                        .replace(/[\uFFFD\uFFFE\uFFFF]/g, '') // Unicode replacement chars (�)
+                        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // Control chars
+                        .replace(/[◐◑◒◓◔◕◖◗]/g, '') // Additional circle variants
+                        .replace(/[\u2600-\u26FF]/g, '') // Miscellaneous symbols
+                        .replace(/[\u2700-\u27BF]/g, '') // Dingbats
+                        .replace(/\?{2,}/g, '') // Multiple question marks
+                        .replace(/\s{2,}/g, ' ') // Multiple spaces to single
+                        .trim();
+                };
+
+                result.segments = result.segments.map(seg => ({
+                    ...seg,
+                    text: finalSanitize(seg.text)
+                })).filter(seg => seg.text && seg.text.length > 0);
+
+                // Regenerate derived fields
+                result.text = result.segments.map(s => s.text).join(' ');
+                result.transcription = result.segments.map(s => s.text).join('\n');
+                result.plainText = result.segments.map(s => s.text).join('\n');
+                if (groqWhisperService && groqWhisperService.generateSrt) {
+                    result.srt = groqWhisperService.generateSrt(result.segments);
+                }
+                console.log('[Main] Final cleanup applied to remove garbled characters');
             }
 
             return result;
         } catch (error) {
+            console.error('[Main] ❌ Groq transcribe CRITICAL ERROR:', error);
+            console.error(error.stack);
             return { success: false, error: error.message };
         }
+    });
+
+    // Cancel transcription handler
+    ipcMain.handle('groq:cancel', async () => {
+        console.log('[Main] Transcription cancel requested');
+        if (groqWhisperService) {
+            groqWhisperService.cancelTranscription();
+        }
+        return { success: true };
     });
 
     // Gap detection and filling handlers
@@ -527,8 +1063,14 @@ app.whenReady().then(() => {
         }
     });
 
-    ipcMain.handle('groq:fill-gaps', async (event, { audioPath, gaps, apiKeys, options }) => {
+    ipcMain.handle('groq:fill-gaps', async (event, params) => {
         try {
+            const { audioPath, gaps, apiKeys, options } = params || {};
+
+            if (!apiKeys || !Array.isArray(apiKeys) || apiKeys.length === 0) {
+                return { success: false, error: '[Main] No API keys provided to gap filling handler' };
+            }
+
             groqWhisperService.initializeWithKeyPool(apiKeys);
             const ffmpegPath = await getFfmpegPath();
             groqWhisperService.setFfmpegPath(ffmpegPath);
@@ -561,11 +1103,331 @@ app.whenReady().then(() => {
         }
     });
 
-    // Gemini post-processing function
-    async function postProcessWithGemini(apiKey, segments, language) {
+    // Gemini direct transcription with timestamp estimation - for "gemini" mode
+    async function geminiDirectTranscribe(apiKey, audioPath, language = 'zh', geminiModel = 'gemini-2.0-flash', audioDuration = null) {
         const { GoogleGenerativeAI } = require('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const model = genAI.getGenerativeModel({ model: geminiModel });
+
+        console.log('[Gemini Direct] Starting direct transcription with timestamp estimation...');
+
+        // Read audio file
+        const audioData = fs.readFileSync(audioPath);
+        const base64Audio = audioData.toString('base64');
+        const mimeType = audioPath.endsWith('.mp3') ? 'audio/mp3' :
+            audioPath.endsWith('.wav') ? 'audio/wav' :
+                audioPath.endsWith('.m4a') ? 'audio/m4a' : 'audio/mpeg';
+
+        const languageMap = {
+            'zh': '简体中文',
+            'en': 'English',
+            'ja': '日本語',
+            'ko': '한국어'
+        };
+        const targetLang = languageMap[language] || language;
+
+        const prompt = `你是专业字幕转写专家。请准确转写这段音频，并估算每句话的时间戳。
+
+音频总时长参考: ${audioDuration ? audioDuration + '秒' : '未知'}
+
+要求:
+1. 使用${targetLang}输出
+2. 每行不超过25个字符
+3. 估算每句话的开始和结束时间（秒）
+4. 按照说话的节奏自然断句
+
+输出格式（只输出JSON数组，不要其他内容）:
+[
+  {"start": 0.0, "end": 3.5, "text": "第一句话"},
+  {"start": 3.5, "end": 7.2, "text": "第二句话"},
+  ...
+]
+
+注意：根据说话速度估算时间，中文约每秒3-4个字。`;
+
+        try {
+            const result = await model.generateContent([
+                prompt,
+                { inlineData: { mimeType, data: base64Audio } }
+            ]);
+            const response = await result.response;
+            let responseText = response.text().trim();
+
+            // Extract JSON from response
+            const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                const segments = JSON.parse(jsonMatch[0]);
+                console.log('[Gemini Direct] Transcription complete, segments:', segments.length);
+                return { success: true, segments };
+            } else {
+                console.error('[Gemini Direct] Failed to parse JSON from response:', responseText.substring(0, 200));
+                return { success: false, error: 'Failed to parse response' };
+            }
+        } catch (error) {
+            console.error('[Gemini Direct] Transcription failed:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // Gemini audio transcription function - listens to entire audio file
+    async function geminiAudioTranscribe(apiKey, audioPath, language = 'zh', geminiModel = 'gemini-2.0-flash') {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: geminiModel });
+
+        console.log('[Gemini Audio] Transcribing entire audio file:', audioPath);
+
+        // Read audio file
+        const audioData = fs.readFileSync(audioPath);
+        const base64Audio = audioData.toString('base64');
+        const mimeType = audioPath.endsWith('.mp3') ? 'audio/mp3' :
+            audioPath.endsWith('.wav') ? 'audio/wav' :
+                audioPath.endsWith('.m4a') ? 'audio/m4a' : 'audio/mpeg';
+
+        const languageMap = {
+            'zh': '简体中文',
+            'en': 'English',
+            'ja': '日本語',
+            'ko': '한국어',
+            'es': 'Español',
+            'fr': 'Français',
+            'de': 'Deutsch'
+        };
+        const targetLang = languageMap[language] || language;
+
+        const prompt = `Transcribe this audio accurately and completely.
+
+CRITICAL RULES:
+1. Output in Simplified Chinese (简体中文) only, never Traditional Chinese
+2. NEVER use placeholder symbols like □ ◇ ○ ● ■ ◆ ◐ ◑ or any geometric shapes
+3. NEVER use ?? or ??? as placeholders
+4. If unclear, infer from context or skip that word entirely
+5. Output ONLY the transcription text, no explanations or labels
+6. Use Chinese punctuation marks (，。？！)
+7. Do not add or remove any spoken content`;
+
+        try {
+            const result = await model.generateContent([
+                prompt,
+                { inlineData: { mimeType, data: base64Audio } }
+            ]);
+            const response = await result.response;
+            let text = response.text().trim();
+
+            // Post-process to remove any remaining garbled characters
+            text = text
+                .replace(/[\u25A0-\u25FF]/g, '') // Remove geometric shapes
+                .replace(/[\u2580-\u259F]/g, '') // Remove block elements
+                .replace(/[\uFFFD\uFFFE\uFFFF]/g, '') // Remove replacement chars
+                .replace(/[◐◑◒◓◔◕◖◗]/g, '') // Remove circle variants
+                .replace(/\s{2,}/g, ' ') // Multiple spaces to single
+                .trim();
+
+            console.log('[Gemini Audio] Transcription complete, length:', text.length);
+            return { success: true, text };
+        } catch (error) {
+            console.error('[Gemini Audio] Transcription failed:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // Dual verification - compare Whisper and Gemini results, fix errors
+    async function dualVerifyAndCorrect(apiKey, whisperSegments, geminiText, geminiModel = 'gemini-2.0-flash') {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: geminiModel });
+
+        console.log('[Dual Verify] Comparing Whisper and Gemini results...');
+        console.log('[Dual Verify] Whisper segments:', whisperSegments.length);
+        console.log('[Dual Verify] Gemini text length:', geminiText.length);
+
+        // Prepare Whisper text for comparison
+        const whisperText = whisperSegments.map(s => s.text).join(' ');
+
+        const prompt = `You are a professional subtitle proofreader. Compare these two transcription results and fix errors in Whisper output.
+
+【Whisper Result】(has timestamps, may contain garbled characters like □◇○●■◆ or ??):
+${JSON.stringify(whisperSegments.map(s => ({ start: s.start, end: s.end, text: s.text })), null, 2)}
+
+【Gemini Result】(more accurate, no timestamps):
+${geminiText}
+
+TASKS:
+1. Find garbled characters (□◇○●■◆◐◑ or ??) in Whisper segments
+2. Replace errors with correct content from Gemini
+3. Keep timestamps (start, end) unchanged, only fix text field
+4. Match each segment's text to its corresponding audio timeframe
+5. If a Whisper segment is completely garbled, find matching content from Gemini based on position
+6. Output must be pure Chinese text without ANY geometric symbols
+
+OUTPUT FORMAT (JSON array only, no explanations):
+[{"start": 0, "end": 3, "text": "corrected text"}, ...]`;
+
+        try {
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            let responseText = response.text().trim();
+
+            // Extract JSON from response
+            const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                const correctedSegments = JSON.parse(jsonMatch[0]);
+                console.log('[Dual Verify] Correction complete, segments:', correctedSegments.length);
+                return { success: true, segments: correctedSegments };
+            } else {
+                console.error('[Dual Verify] Failed to parse JSON from response');
+                return { success: false, segments: whisperSegments };
+            }
+        } catch (error) {
+            console.error('[Dual Verify] Correction failed:', error.message);
+            return { success: false, segments: whisperSegments, error: error.message };
+        }
+    }
+
+    // Gemini post-processing function
+    async function postProcessWithGemini(apiKey, segments, language, geminiModel = 'gemini-3-flash-preview', audioPath = null) {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const modelName = geminiModel || 'gemini-3-flash-preview';
+        console.log('[Gemini] Using model:', modelName);
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        // Helper function to remove garbled Unicode characters from text
+        const sanitizeGarbledText = (text) => {
+            if (!text) return text;
+            // Remove geometric shapes, block elements, and replacement chars
+            return text
+                .replace(/[\u25A0-\u25FF]/g, '') // Geometric shapes (□◇◆○●■等)
+                .replace(/[\u2580-\u259F]/g, '') // Block elements
+                .replace(/[\uFFFD\uFFFE\uFFFF]/g, '') // Unicode replacement chars
+                .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // Control chars
+                .replace(/[◐◑◒◓◔◕◖◗]/g, '') // Additional circle variants
+                .replace(/\s{2,}/g, ' ') // Multiple spaces to single
+                .trim();
+        };
+
+        // Helper function to detect garbled characters (comprehensive detection)
+        const hasGarbledChars = (text) => {
+            if (!text) return false;
+            // Comprehensive pattern to detect various garbled/placeholder characters:
+            // - U+FFFD: Unicode replacement character
+            // - U+25A0-U+25FF: Geometric shapes (□, ◇, ◆, ○, ●, etc.)
+            // - U+2580-U+259F: Block elements (▀, █, etc.)
+            // - U+2000-U+200F: Various spaces and marks
+            // - U+FFF0-U+FFFF: Specials block
+            // - Control characters
+            // - Repeated question marks (???)
+            const garbledPatterns = [
+                /[\uFFFD\uFFFE\uFFFF]/,           // Unicode replacement chars
+                /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/, // Control chars
+                /[\u25A0-\u25A1]{2,}/,            // □ squares repeated
+                /[\u25C6-\u25C7]{2,}/,            // ◇◆ diamonds repeated
+                /[\u25CB-\u25CF]{2,}/,            // ○● circles repeated
+                /[\u2580-\u259F]{2,}/,            // Block elements repeated
+                /\?{3,}/,                          // ??? repeated question marks
+                /[\u3000]{2,}/,                    // Ideographic spaces repeated
+                /[□◇◆○●■▪▫]{2,}/,                // Common placeholder shapes
+            ];
+            return garbledPatterns.some(pattern => pattern.test(text));
+        };
+
+        // Helper function to extract audio segment using FFmpeg
+        const extractAudioSegment = async (audioFilePath, startTime, endTime) => {
+            const path = require('path');
+            const os = require('os');
+            const { promisify } = require('util');
+            const exec = promisify(require('child_process').exec);
+
+            const tempDir = os.tmpdir();
+            const outputPath = path.join(tempDir, `segment_${Date.now()}.mp3`);
+            const duration = endTime - startTime;
+
+            try {
+                const ffmpegPath = ffmpegHelpers.getFFmpegPath();
+                await exec(`"${ffmpegPath}" -y -i "${audioFilePath}" -ss ${startTime} -t ${duration} -acodec libmp3lame -q:a 2 "${outputPath}"`, { timeout: 30000 });
+                return outputPath;
+            } catch (err) {
+                console.error('[Gemini Audio] Failed to extract audio segment:', err.message);
+                return null;
+            }
+        };
+
+        // Helper function to fix garbled segment using Gemini Audio
+        const fixGarbledWithAudio = async (segment, audioFilePath, contextBefore = '', contextAfter = '') => {
+            if (!audioFilePath || !fs.existsSync(audioFilePath)) {
+                console.warn('[Gemini Audio] Audio file not available for garbled fix');
+                return segment.text;
+            }
+
+            try {
+                // Extract the audio segment
+                const segmentAudioPath = await extractAudioSegment(audioFilePath, segment.start, segment.end);
+                if (!segmentAudioPath || !fs.existsSync(segmentAudioPath)) {
+                    return segment.text;
+                }
+
+                // Read audio file as base64
+                const audioBuffer = fs.readFileSync(segmentAudioPath);
+                const base64Audio = audioBuffer.toString('base64');
+
+                // Use Gemini to transcribe this audio segment
+                const prompt = language === 'zh'
+                    ? `请听这段音频并准确转写成中文文字。
+上下文参考（帮助理解）：
+前文：${contextBefore || '(无)'}
+后文：${contextAfter || '(无)'}
+原始识别（可能有错误）：${segment.text}
+
+只输出准确的转写文字，不要添加任何说明或标点符号。`
+                    : `Listen to this audio and transcribe it accurately.
+Context reference (for understanding):
+Before: ${contextBefore || '(none)'}
+After: ${contextAfter || '(none)'}
+Original recognition (may have errors): ${segment.text}
+
+Output only the accurate transcription, no explanations or additional punctuation.`;
+
+                const result = await model.generateContent([
+                    prompt,
+                    {
+                        inlineData: {
+                            mimeType: 'audio/mp3',
+                            data: base64Audio
+                        }
+                    }
+                ]);
+
+                const response = await result.response;
+                const fixedText = response.text().trim();
+
+                // Clean up temp file
+                try { fs.unlinkSync(segmentAudioPath); } catch (e) { }
+
+                if (fixedText && fixedText.length > 0) {
+                    console.log(`[Gemini Audio] Fixed: "${segment.text}" → "${fixedText}"`);
+                    return fixedText;
+                }
+            } catch (err) {
+                console.error('[Gemini Audio] Error fixing garbled segment:', err.message);
+            }
+
+            return segment.text;
+        };
+
+        // Fix garbled segments using Gemini Audio (re-listens to audio, doesn't delete text)
+        if (audioPath && fs.existsSync(audioPath)) {
+            console.log('[Gemini Audio] Checking for garbled segments to fix with audio...');
+            for (let i = 0; i < segments.length; i++) {
+                const seg = segments[i];
+                if (hasGarbledChars(seg.text)) {
+                    console.log(`[Gemini Audio] Garbled detected in segment ${i}: "${seg.text}"`);
+                    const contextBefore = i > 0 ? segments[i - 1].text : '';
+                    const contextAfter = i < segments.length - 1 ? segments[i + 1].text : '';
+                    const fixedText = await fixGarbledWithAudio(seg, audioPath, contextBefore, contextAfter);
+                    segments[i] = { ...seg, text: fixedText };
+                }
+            }
+        }
 
         // CRITICAL: Separate failed chunks (placeholders) from successful ones
         const failedSegments = [];
@@ -616,7 +1478,7 @@ ${textsToFix}`;
                         if (batch[idx]) {
                             batchProcessed.push({
                                 ...batch[idx],
-                                text: text || batch[idx].text
+                                ...{ text: text || batch[idx].text }
                             });
                         }
                     }

@@ -361,4 +361,3 @@ export const mergeAudioFiles = async (inputPaths, outputPath) => {
 };
 
 export default { createCommand, getFfmpegPath, extractAudio, getAudioDuration, extractAudioSegment, mergeAudioFiles };
-

@@ -3,6 +3,9 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
 const api = {
+    // Clipboard API - use IPC to main process
+    copyToClipboard: (text) => ipcRenderer.invoke('clipboard:copy', text),
+    
     getVideoInfo: (url) => ipcRenderer.invoke('get-video-info', url),
     getPreviewVideo: (videoInfo) => ipcRenderer.invoke('get-preview-video', videoInfo),
     getVideoProxyUrl: (videoInfo) => ipcRenderer.invoke('get-video-proxy-url', videoInfo),
@@ -16,6 +19,9 @@ const api = {
     onComplete: (callback) => ipcRenderer.on('download-complete', (_, data) => callback(data)),
     onPauseReply: (callback) => ipcRenderer.on('pause-download-reply', (_, data) => callback(data)),
     onCancelReply: (callback) => ipcRenderer.on('cancel-download-reply', (_, data) => callback(data)),
+    openFolder: (filePath) => ipcRenderer.invoke('open-folder', filePath),
+    openDownloadsFolder: () => ipcRenderer.invoke('open-downloads-folder'),
+    selectVideoFiles: () => ipcRenderer.invoke('select-video-files'),
     removeListeners: () => {
         ipcRenderer.removeAllListeners('download-progress');
         ipcRenderer.removeAllListeners('download-complete');
@@ -46,10 +52,27 @@ const api = {
 
     // File Compressor API
     zipSelectFiles: () => ipcRenderer.invoke('zip:select-files'),
+    zipSelectArchives: () => ipcRenderer.invoke('zip:select-archives'),
     zipCompress: (files, options, id) => ipcRenderer.send('zip:compress', { files, options, id }),
     zipDecompress: (file, options, id) => ipcRenderer.send('zip:decompress', { file, options, id }),
     onZipProgress: (callback) => ipcRenderer.on('zip:progress', (_, data) => callback(data)),
     onZipComplete: (callback) => ipcRenderer.on('zip:complete', (_, data) => callback(data)),
+    
+    // Password Cracking API
+    zipSelectDictionary: () => ipcRenderer.invoke('zip:select-dictionary'),
+    zipCheckGpu: () => ipcRenderer.invoke('zip:check-gpu'),
+    zipCrackStart: (archivePath, options, id) => ipcRenderer.send('zip:crack-start', { archivePath, options, id }),
+    zipCrackStop: (id) => ipcRenderer.send('zip:crack-stop', { id }),
+    onZipCrackStarted: (callback) => ipcRenderer.on('zip:crack-started', (_, data) => callback(data)),
+    onZipCrackProgress: (callback) => ipcRenderer.on('zip:crack-progress', (_, data) => callback(data)),
+    onZipCrackResult: (callback) => ipcRenderer.on('zip:crack-complete', (_, data) => callback(data)),
+    onZipCrackEncryption: (callback) => ipcRenderer.on('zip:crack-encryption', (_, data) => callback(data)),
+    zipCrackOffListeners: () => {
+        ipcRenderer.removeAllListeners('zip:crack-started');
+        ipcRenderer.removeAllListeners('zip:crack-progress');
+        ipcRenderer.removeAllListeners('zip:crack-complete');
+        ipcRenderer.removeAllListeners('zip:crack-encryption');
+    },
 
     // GPU Detection and Settings API
     gpuDetect: () => ipcRenderer.invoke('gpu-detect'),
@@ -60,7 +83,10 @@ const api = {
 
     // Watermark Removal APIs
     watermarkSelectFiles: () => ipcRenderer.invoke('watermark:select-files'),
+    watermarkSelectImages: () => ipcRenderer.invoke('watermark:select-images'),
     watermarkDetect: (filePath) => ipcRenderer.invoke('watermark:detect', filePath),
+    watermarkGetImageInfo: (filePath) => ipcRenderer.invoke('watermark:get-image-info', filePath),
+    watermarkRemoveImage: (data) => ipcRenderer.invoke('watermark:remove-image', data),
     watermarkRemove: (data, callback) => {
         ipcRenderer.send('watermark:remove', data);
         ipcRenderer.on('watermark:progress', (_event, result) => callback('progress', result));
@@ -71,6 +97,7 @@ const api = {
         ipcRenderer.removeAllListeners('watermark:progress');
         ipcRenderer.removeAllListeners('watermark:complete');
     },
+
 
     // AI Transcription APIs
     transcribeGetModels: () => ipcRenderer.invoke('transcribe:get-models'),
@@ -92,8 +119,10 @@ const api = {
     groqTestConnection: (apiKey) => ipcRenderer.invoke('groq:test-connection', apiKey),
     groqUpdateKeys: (apiKeys) => ipcRenderer.invoke('groq:update-keys', apiKeys),
     groqTranscribe: (data) => ipcRenderer.invoke('groq:transcribe', data),
+    cancelTranscription: () => ipcRenderer.invoke('groq:cancel'),
     groqDetectGaps: (data) => ipcRenderer.invoke('groq:detect-gaps', data),
     groqFillGaps: (data) => ipcRenderer.invoke('groq:fill-gaps', data),
+    saveTranscription: (data) => ipcRenderer.invoke('save-transcription', data),
     onGroqProgress: (callback) => ipcRenderer.on('groq:progress', (_, data) => callback(data)),
     onGroqKeyStatusUpdate: (callback) => ipcRenderer.on('groq:key-status-update', (_, data) => callback(data)),
     groqOffListeners: () => {

@@ -8,8 +8,16 @@ import { getFfmpegPath } from '../utils/ffmpeg-helper';
 
 class YtDlpService {
     constructor() {
-        this.binPath = this.getBinaryPath();
+        this._binPath = null; // Lazy initialized to avoid app.isPackaged issues during module load
         this.activeDownloads = new Map(); // Store active child processes: id -> { process, outputPath }
+    }
+
+    // Lazy getter for binPath to avoid accessing app.isPackaged during module loading
+    get binPath() {
+        if (!this._binPath) {
+            this._binPath = this.getBinaryPath();
+        }
+        return this._binPath;
     }
 
     getBinaryPath() {
@@ -321,11 +329,11 @@ class YtDlpService {
             let error = '';
 
             child.stdout.on('data', (data) => {
-                output += data.toString();
+                output += data.toString('utf8');
             });
 
             child.stderr.on('data', (data) => {
-                error += data.toString();
+                error += data.toString('utf8');
             });
 
             child.on('close', (code) => {
@@ -388,7 +396,10 @@ class YtDlpService {
             '--output', outputPath,
             '--no-playlist',
             '--no-check-certificate',
-            '--embed-metadata'
+            '--embed-metadata',
+            // 🔑 CRITICAL FIX: Tell yt-dlp to print the final filepath after download
+            // This works on ALL platforms and avoids encoding issues
+            '--print', 'after_move:filepath'
         ];
 
         // Explicitly tell yt-dlp where ffmpeg is, just in case 'best' falls back to merging
@@ -433,62 +444,92 @@ class YtDlpService {
         this.activeDownloads.set(id, { process: child, outputPath: null, paused: false });
 
         child.stdout.on('data', (data) => {
-            const str = data.toString();
-            console.log(`[yt-dlp ${id}]`, str); // Log all output for debugging
+            const str = data.toString('utf8');
+            console.log(`[yt-dlp ${id}]`, str);
 
-            // Match progress percentage - handle formats like "8.4%" or " 8.4%"
+            // 🔑 PRIORITY 1: Capture filepath from --print after_move:filepath
+            // This is a clean output with JUST the file path, no prefixes
+            // It appears on its own line after download completes
+            const lines = str.split(/\r?\n/);
+            for (const line of lines) {
+                const trimmed = line.trim();
+                // If line looks like a file path (contains path separator and file extension)
+                if (trimmed && (trimmed.includes('\\') || trimmed.includes('/')) &&
+                    /\.(mp4|webm|mkv|avi|mov|m4a|mp3|wav|aac|ogg|flac)$/i.test(trimmed)) {
+                    // This is likely our filepath from --print
+                    console.log(`[yt-dlp ${id}] 🎯 FILEPATH from --print:`, trimmed);
+                    child._outputPath = trimmed;
+                    const active = this.activeDownloads.get(id);
+                    if (active) {
+                        active.outputPath = trimmed;
+                        console.log(`[yt-dlp ${id}] ✅ Final path stored successfully`);
+                    }
+                    // Don't break - let it capture the last one if multiple matches
+                }
+            }
+
+            // Match progress percentage
             const match = str.match(/\s*(\d+\.?\d*)%/);
             if (match) {
                 const progress = parseFloat(match[1]);
-                console.log(`[yt-dlp ${id}] Progress:`, progress + '%');
                 onProgress(progress);
             }
 
-            // Capture destination
-            const destMatch = str.match(/\[download\] Destination: (.+)/);
+            // FALLBACK: Old parsing methods (kept for compatibility)
+            // These will be overridden by the --print output above
+
+            const destMatch = str.match(/\[download\] Destination: (.+?)(?:\r?\n|$)/);
             if (destMatch) {
                 const dest = destMatch[1].trim();
-                child._outputPath = dest;
-                // Update stored output path
-                const active = this.activeDownloads.get(id);
-                if (active) active.outputPath = dest;
+                console.log(`[yt-dlp ${id}] Fallback: Captured from [download]:`, dest);
+                if (!child._outputPath) { // Only use if we don't have the --print version
+                    child._outputPath = dest;
+                    const active = this.activeDownloads.get(id);
+                    if (active) active.outputPath = dest;
+                }
             }
 
-            // Capture extraction destination
-            const extractMatch = str.match(/\[ExtractAudio\] Destination: (.+)/);
+            const extractMatch = str.match(/\[ExtractAudio\] Destination: (.+?)(?:\r?\n|$)/);
             if (extractMatch) {
                 const dest = extractMatch[1].trim();
-                child._outputPath = dest;
-                // Update stored output path
-                const active = this.activeDownloads.get(id);
-                if (active) active.outputPath = dest;
+                console.log(`[yt-dlp ${id}] Fallback: Captured from [ExtractAudio]:`, dest);
+                if (!child._outputPath) {
+                    child._outputPath = dest;
+                    const active = this.activeDownloads.get(id);
+                    if (active) active.outputPath = dest;
+                }
             }
 
-            const alreadyMatch = str.match(/\[download\] (.+) has already been downloaded/);
+            const alreadyMatch = str.match(/\[download\] (.+?) has already been downloaded/);
             if (alreadyMatch) {
                 const dest = alreadyMatch[1].trim();
-                child._outputPath = dest;
-                // Update stored output path
-                const active = this.activeDownloads.get(id);
-                if (active) active.outputPath = dest;
+                console.log(`[yt-dlp ${id}] Fallback: File already exists:`, dest);
+                if (!child._outputPath) {
+                    child._outputPath = dest;
+                    const active = this.activeDownloads.get(id);
+                    if (active) active.outputPath = dest;
+                }
             }
         });
 
         child.stderr.on('data', (data) => {
-            console.error(`[yt-dlp ${id} ERROR]`, data.toString());
+            console.error(`[yt-dlp ${id} ERROR]`, data.toString('utf8'));
         });
+
 
         child.on('close', () => {
             const active = this.activeDownloads.get(id);
 
             // If it was paused, don't delete and don't trigger completion
-            // The paused download should stay in activeDownloads for resume
             if (active && active.paused) {
                 console.log(`[yt-dlp ${id}] Process closed due to pause`);
-                return; // Don't delete or trigger completion
+                return;
             }
 
-            // Otherwise, clean up normally
+            // The filepath should already be captured from --print after_move:filepath
+            console.log(`[yt-dlp ${id}] Download complete. Final path:`, active?.outputPath || child._outputPath);
+
+            // Clean up
             if (this.activeDownloads.has(id)) {
                 this.activeDownloads.delete(id);
             }
@@ -582,11 +623,11 @@ class YtDlpService {
             let error = '';
 
             child.stdout.on('data', (data) => {
-                output += data.toString();
+                output += data.toString('utf8');
             });
 
             child.stderr.on('data', (data) => {
-                error += data.toString();
+                error += data.toString('utf8');
             });
 
             child.on('close', (code) => {
@@ -674,7 +715,7 @@ class YtDlpService {
         child._outputPath = null;
 
         child.stdout.on('data', (data) => {
-            const str = data.toString();
+            const str = data.toString('utf8');
             console.log('[yt-dlp subtitle]', str);
 
             // Check for completion messages
@@ -684,7 +725,7 @@ class YtDlpService {
         });
 
         child.stderr.on('data', (data) => {
-            console.error('[yt-dlp subtitle ERROR]', data.toString());
+            console.error('[yt-dlp subtitle ERROR]', data.toString('utf8'));
         });
 
         return child;

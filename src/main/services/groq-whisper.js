@@ -19,6 +19,15 @@ class GroqWhisperService {
         this.keyPool = [];
         this.currentKeyIndex = 0;
         this.mainWindow = null;  // Reference to main window for broadcasting events
+        this.cancelled = false;  // Flag for cancellation
+    }
+
+    /**
+     * Cancel ongoing transcription
+     */
+    cancelTranscription() {
+        this.cancelled = true;
+        console.log('[Groq Whisper] Transcription cancelled by user');
     }
 
     /**
@@ -163,9 +172,17 @@ class GroqWhisperService {
     async transcribe(audioPath, options = {}, onProgress) {
         const {
             language = 'zh',
-            model = 'whisper-large-v3',
-            manualDuration = null  // Extract manual duration from options
+            whisperModel: model = 'whisper-large-v3-turbo',
+            manualDuration: rawManualDuration = null,  // Extract manual duration from options
+            audioPreprocessing = false  // Enable noise reduction
         } = options;
+
+        // Store audioPreprocessing option for later use
+        this.audioPreprocessing = audioPreprocessing;
+
+        // CRITICAL FIX: Parse HH:MM:SS to seconds immediately
+        const manualDuration = this.parseDuration(rawManualDuration);
+        console.log('[DEBUG-ROOT] Transcription start. Manual duration:', rawManualDuration, '-> Parsed:', manualDuration);
 
         if (!this.apiKey) {
             throw new Error('Service not initialized. Call initialize() first.');
@@ -197,7 +214,20 @@ class GroqWhisperService {
         try {
             // If file is under limit, transcribe directly
             if (fileSizeMB <= MAX_FILE_SIZE_MB) {
-                const result = await this.transcribeSingleFile(fileToTranscribe, { language, model }, onProgress);
+                console.log('[Groq Whisper] Small file detected, transcribing directly...');
+                const rawResult = await this.transcribeSingleFile(fileToTranscribe, { language, model }, onProgress);
+
+                // Format the single file result to match the expected unified structure
+                const result = {
+                    success: true,
+                    transcription: this.generatePlainText(rawResult.segments), // Use plainText for proper line breaks
+                    text: rawResult.text,
+                    srt: this.generateSrt(rawResult.segments),
+                    plainText: this.generatePlainText(rawResult.segments),
+                    segments: rawResult.segments,
+                    audioPath: audioPath,
+                    duration: rawResult.duration || 0
+                };
                 return result;
             }
 
@@ -211,40 +241,51 @@ class GroqWhisperService {
 
             console.log(`[Groq Whisper] Split into ${chunks.length} chunks`);
 
+            // Reset cancelled flag at start of transcription
+            this.cancelled = false;
+
             for (let i = 0; i < chunks.length; i++) {
+                // Check for cancellation
+                if (this.cancelled) {
+                    console.log('[Groq Whisper] Transcription cancelled by user');
+                    return { success: false, error: 'Transcription cancelled by user' };
+                }
+
                 const chunk = chunks[i];
                 onProgress?.({
                     stage: 'transcribing',
                     message: `Transcribing chunk ${i + 1}/${chunks.length}...`,
-                    percent: Math.round((i / chunks.length) * 100)
+                    percent: Math.round((i / chunks.length) * 90) // 0-90% for transcription, 90-100% for AI correction
                 });
 
-                // 🔥 NEVER-GIVE-UP MODE: Infinite retry until success!
+                // 🔥 NEVER-GIVE-UP MODE: Infinite retry until success or user cancel!
                 let success = false;
-                let attemptCount = 0; // Track attempts for logging
+                let attemptCount = 0; // Track actual API call attempts for logging
 
-                while (!success) {
+                // INFINITE RETRY - only stop on success or user cancellation
+                while (!success && !this.cancelled) {
                     // Get available key
                     let currentKey = this.getAvailableKey();
 
-                    attemptCount++; // Increment at start of each attempt
-
-                    // If no key available, wait for shortest cooldown  
+                    // If no key available, wait for shortest cooldown (does NOT count as attempt)
                     if (!currentKey) {
                         const soonestKey = this.keyPool.reduce((prev, curr) =>
                             prev.cooldownUntil < curr.cooldownUntil ? prev : curr
                         );
                         const waitTime = Math.max(1000, soonestKey.cooldownUntil - Date.now());
 
-                        console.log(`[Groq Whisper] ⏸ Chunk ${i + 1}/${chunks.length}: All keys cooling, waiting ${Math.ceil(waitTime / 1000)}s (attempt #${attemptCount})`);
+                        console.log(`[Groq Whisper] ⏸ Chunk ${i + 1}/${chunks.length}: All keys cooling, waiting ${Math.ceil(waitTime / 1000)}s...`);
                         onProgress?.({
                             stage: 'waiting',
-                            message: `⏸ All keys cooling, waiting ${Math.ceil(waitTime / 1000)}s... (chunk ${i + 1}/${chunks.length}, attempt #${attemptCount})`
+                            message: `☕ Server busy, please wait (~${Math.ceil(waitTime / 1000)}s)... Chunk ${i + 1}/${chunks.length}`,
+                            percent: Math.round((i / chunks.length) * 90)
                         });
 
                         await new Promise(resolve => setTimeout(resolve, waitTime + 1000));
-                        continue; // Try again after waiting
+                        continue; // Try again after waiting - DO NOT increment attemptCount
                     }
+
+                    attemptCount++; // Only count actual API call attempts
 
                     try {
                         // Use the selected key for this request
@@ -278,7 +319,8 @@ class GroqWhisperService {
 
                             onProgress?.({
                                 stage: 'retrying',
-                                message: `🔄 Retrying chunk ${i + 1}/${chunks.length} (attempt #${attemptCount})...`
+                                message: `🔄 Retrying chunk ${i + 1}/${chunks.length} (attempt #${attemptCount})...`,
+                                percent: Math.round((i / chunks.length) * 90)
                             });
 
                             // No wait - immediately try next key
@@ -290,15 +332,10 @@ class GroqWhisperService {
                     }
                 }
 
-                if (!success) {
-                    console.error(`[Groq Whisper] Failed chunk ${i + 1} after all attempts`);
-                    console.error(`[Groq Whisper] Missing chunk time range: ${chunk.startTime}s - ${chunk.endTime}s`);
-                    // Add a placeholder segment for failed chunks to maintain timeline
-                    allSegments.push({
-                        start: chunk.startTime,
-                        end: chunk.endTime,
-                        text: `[转写失败 chunk ${i + 1}]`
-                    });
+                // If not success, it means user cancelled
+                if (!success && this.cancelled) {
+                    console.log(`[Groq Whisper] Chunk ${i + 1} cancelled by user after ${attemptCount} attempts`);
+                    return { success: false, error: 'Transcription cancelled by user' };
                 }
 
                 // Clean up chunk file
@@ -325,11 +362,13 @@ class GroqWhisperService {
 
             return {
                 success: true,
-                text: fullText,
+                transcription: plainText, // Use plainText for proper line breaks
+                text: fullText, // Keep 'text' for backward compatibility
                 srt: srt,
                 plainText: plainText,
                 segments: allSegments,
-                duration: chunks.length > 0 ? chunks[chunks.length - 1].endTime : 0
+                audioPath: audioPath, // Crucial for new UI to save/export
+                duration: chunks.length > 0 ? (chunks[chunks.length - 1].endTime || duration) : duration
             };
         } finally {
             // Cleanup temporary converted file if created
@@ -354,10 +393,9 @@ class GroqWhisperService {
 
         let duration;
 
-        if (manualDuration) {
-            // Use manually provided duration (from frontend)
-            console.log('[Groq Whisper] ═══ USING MANUAL DURATION ═══');
-            console.log(`[Groq Whisper] Manual duration: ${manualDuration}s`);
+        if (manualDuration > 0) {
+            // Use manually provided duration (previously parsed at start of transcribe)
+            console.log('[Groq Whisper] [DEBUG] USING PRE-PARSED DURATION:', manualDuration);
             duration = manualDuration;
         } else {
             // Auto-detect duration from file
@@ -379,7 +417,7 @@ class GroqWhisperService {
             duration = Math.max(duration, duration2);
         }
 
-        const numChunks = Math.ceil(duration / chunkDurationSeconds);
+        const numChunks = Math.max(1, Math.ceil(duration / chunkDurationSeconds));
         console.log(`[Groq Whisper] Will split into ${numChunks} chunks (duration: ${duration}s / ${chunkDurationSeconds}s)`);
         console.log(`[Groq Whisper] Expected coverage: ${numChunks * chunkDurationSeconds}s, actual: ${duration}s`);
 
@@ -412,8 +450,9 @@ class GroqWhisperService {
         }
 
         // Verify coverage
-        const lastChunkEnd = chunks[chunks.length - 1].endTime;
-        const coverage = (lastChunkEnd / duration * 100).toFixed(2);
+        const lastChunk = chunks[chunks.length - 1];
+        const lastChunkEnd = lastChunk ? lastChunk.endTime : duration;
+        const coverage = (duration > 0) ? (lastChunkEnd / duration * 100).toFixed(2) : '0.00';
         console.log(`[Groq Whisper] Coverage: ${lastChunkEnd}/${duration}s (${coverage}%)`);
 
         if (lastChunkEnd < duration - 1) {
@@ -448,7 +487,14 @@ class GroqWhisperService {
 
             proc.on('close', (code) => {
                 if (code === 0) {
-                    resolve(parseFloat(output.trim()) || 0);
+                    const parsed = parseFloat(output.trim());
+                    if (parsed > 0) {
+                        resolve(parsed);
+                    } else {
+                        // Fallback: estimate based on file size if duration is 0
+                        const stats = fs.statSync(audioPath);
+                        resolve((stats.size / (1024 * 1024)) * 60);
+                    }
                 } else {
                     // Fallback: estimate based on file size (rough: 1MB ≈ 60 seconds for MP3)
                     const stats = fs.statSync(audioPath);
@@ -471,23 +517,44 @@ class GroqWhisperService {
         return new Promise((resolve, reject) => {
             const ffmpeg = this.ffmpegPath || 'ffmpeg';
 
+            // Build FFmpeg args with optional audio preprocessing (noise reduction)
             const args = [
                 '-y',
                 '-ss', String(startTime),
                 '-t', String(duration),
-                '-i', inputPath,
+                '-i', inputPath
+            ];
+
+            // Add audio preprocessing filters if enabled
+            if (this.audioPreprocessing) {
+                // Filters: highpass (remove low freq noise), lowpass (remove high freq), afftdn (noise reduction), loudnorm (volume normalization)
+                args.push('-af', 'highpass=f=200,lowpass=f=3000,afftdn=nf=-25,loudnorm=I=-16:LRA=11:TP=-1.5');
+                console.log('[Groq Whisper] Audio preprocessing enabled - applying noise reduction');
+            }
+
+            args.push(
                 '-acodec', 'libmp3lame',
                 '-ar', '16000',
                 '-ac', '1',
                 '-b:a', '64k',
                 outputPath
-            ];
+            );
 
             const proc = spawn(ffmpeg, args);
 
             proc.on('close', (code) => {
                 if (code === 0) {
-                    resolve();
+                    // Verify output file exists and has size
+                    try {
+                        const stats = fs.statSync(outputPath);
+                        if (stats.size < 100) { // Less than 100 bytes is suspicious
+                            reject(new Error(`FFmpeg extracted empty or invalid file (${stats.size} bytes)`));
+                        } else {
+                            resolve();
+                        }
+                    } catch (e) {
+                        reject(new Error(`Failed to verify extracted file: ${e.message}`));
+                    }
                 } else {
                     reject(new Error(`FFmpeg exited with code ${code}`));
                 }
@@ -503,7 +570,13 @@ class GroqWhisperService {
     async transcribeSingleFile(audioPath, options, onProgress) {
         const { language, model } = options;
 
+        if (!fs.existsSync(audioPath)) {
+            throw new Error(`Audio file not found: ${audioPath}`);
+        }
         const stats = fs.statSync(audioPath);
+        if (stats.size < 100) {
+            throw new Error(`Audio file is too small or empty (${stats.size} bytes)`);
+        }
         const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
 
         console.log('[Groq Whisper] Transcribing:', audioPath, 'size:', fileSizeMB, 'MB');
@@ -519,6 +592,10 @@ class GroqWhisperService {
         formData.append('timestamp_granularities[]', 'segment');
         if (language && language !== 'auto') {
             formData.append('language', language);
+            // Add prompt to guide Chinese transcription style (simplified Chinese)
+            if (language === 'zh') {
+                formData.append('prompt', '以下是普通话的句子，请使用简体中文输出。');
+            }
         }
 
         onProgress?.({ stage: 'transcribing', message: 'Processing...' });
@@ -794,126 +871,30 @@ class GroqWhisperService {
     }
 
     /**
-     * Convert time string to seconds
+     * Parse duration string (HH:MM:SS or MM:SS) to total seconds
+     */
+    parseDuration(durationStr) {
+        if (!durationStr || typeof durationStr !== 'string') return parseFloat(durationStr) || 0;
+
+        const parts = durationStr.split(':').map(p => parseFloat(p) || 0);
+        if (parts.length === 3) {
+            // HH:MM:SS
+            return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        } else if (parts.length === 2) {
+            // MM:SS
+            return parts[0] * 60 + parts[1];
+        } else if (parts.length === 1) {
+            // SS
+            return parts[0];
+        }
+        return parseFloat(durationStr) || 0;
+    }
+
+    /**
+     * Convert time string to seconds (legacy helper)
      */
     timeToSeconds(hours, minutes, seconds, milliseconds) {
         return parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseInt(seconds) + parseInt(milliseconds) / 1000;
-    }
-
-    /**
-     * Parse SRT content to extract segments with timestamps
-     */
-    parseSRT(srtContent) {
-        const segments = [];
-        const lines = srtContent.split('\n');
-        let currentSegment = null;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-
-            // Match timestamp line: 00:00:00,000 --> 00:00:05,000
-            const timeMatch = line.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
-            if (timeMatch) {
-                currentSegment = {
-                    start: this.timeToSeconds(timeMatch[1], timeMatch[2], timeMatch[3], timeMatch[4]),
-                    end: this.timeToSeconds(timeMatch[5], timeMatch[6], timeMatch[7], timeMatch[8])
-                };
-                segments.push(currentSegment);
-            }
-        }
-
-        return segments.sort((a, b) => a.start - b.start);
-    }
-
-    /**
-     * Detect gaps in SRT coverage
-     */
-    detectGaps(srtContent, totalDuration) {
-        const segments = this.parseSRT(srtContent);
-        const gaps = [];
-        const MIN_GAP_SECONDS = 10; // Only consider gaps >= 10 seconds
-
-        if (segments.length === 0) {
-            // Entire file is a gap
-            return [{
-                start: 0,
-                end: totalDuration,
-                duration: totalDuration
-            }];
-        }
-
-        // Check beginning gap
-        if (segments[0].start > MIN_GAP_SECONDS) {
-            gaps.push({
-                start: 0,
-                end: segments[0].start,
-                duration: segments[0].start
-            });
-        }
-
-        // Check gaps between segments
-        for (let i = 0; i < segments.length - 1; i++) {
-            const gapSize = segments[i + 1].start - segments[i].end;
-            if (gapSize > MIN_GAP_SECONDS) {
-                gaps.push({
-                    start: segments[i].end,
-                    end: segments[i + 1].start,
-                    duration: gapSize
-                });
-            }
-        }
-
-        // Check ending gap
-        const lastEnd = segments[segments.length - 1].end;
-        if (totalDuration - lastEnd > MIN_GAP_SECONDS) {
-            gaps.push({
-                start: lastEnd,
-                end: totalDuration,
-                duration: totalDuration - lastEnd
-            });
-        }
-
-        console.log(`[Groq Whisper] Detected ${gaps.length} gaps in transcription`);
-        return gaps;
-    }
-
-    /**
-     * Transcribe a specific gap
-     */
-    async transcribeGap(audioPath, gap, options, onProgress) {
-        console.log(`[Groq Whisper] Transcribing gap: ${gap.start}s - ${gap.end}s (${gap.duration}s)`);
-
-        // Extract gap audio segment
-        const tempDir = os.tmpdir();
-        const gapAudioPath = path.join(tempDir, `groq_gap_${Date.now()}.mp3`);
-
-        try {
-            await this.extractChunk(audioPath, gapAudioPath, gap.start, gap.duration);
-
-            // Transcribe gap (single file, aggressive retries)
-            const result = await this.transcribeSingleFile(gapAudioPath, options, onProgress);
-
-            // Adjust timestamps to absolute position
-            if (result.success && result.segments) {
-                result.segments = result.segments.map(seg => ({
-                    ...seg,
-                    start: seg.start + gap.start,
-                    end: seg.end + gap.start
-                }));
-            }
-
-            // Clean up temp file
-            try {
-                fs.unlinkSync(gapAudioPath);
-            } catch (e) {
-                console.warn('[Groq Whisper] Failed to cleanup gap audio:', e.message);
-            }
-
-            return result;
-        } catch (error) {
-            console.error(`[Groq Whisper] Failed to transcribe gap:`, error.message);
-            throw error;
-        }
     }
 }
 

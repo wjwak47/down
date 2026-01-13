@@ -17,12 +17,13 @@ const NavItem = ({ id, icon: Icon, label, active, onClick }) => (
 
 const Navigation = ({ activeTab, onTabChange }) => {
     const tabs = [
-        // 核心功能：视频下载
-        { id: 'video', label: 'Video Downloader', icon: Download },
+        // 核心功能
+        { id: 'video', label: 'Download', icon: Download },
 
-        // 视频配套功能：转录字幕
+        // 媒体工具
+        { id: 'media', label: 'Convert', icon: FileVideo },
         {
-            id: 'transcribe', label: 'AI Transcriber', icon: () => (
+            id: 'transcribe', label: 'AI Transcribe', icon: () => (
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                     <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
@@ -30,27 +31,20 @@ const Navigation = ({ activeTab, onTabChange }) => {
                 </svg>
             )
         },
-
-        // 视频配套功能：去水印
         {
-            id: 'watermark', label: 'Watermark Remover', icon: () => (
+            id: 'watermark', label: 'Watermark', icon: () => (
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                 </svg>
             )
         },
 
-        // 媒体处理工具
-        { id: 'media', label: 'Media Converter', icon: FileVideo },
+        // 文件工具
+        { id: 'document', label: 'Document', icon: FileText },
+        { id: 'compress', label: 'Compress', icon: Archive },
 
-        // 文档处理工具
-        { id: 'document', label: 'Document Converter', icon: FileText },
-
-        // 通用工具
-        { id: 'compress', label: 'File Compressor', icon: Archive },
-
-        // 更新日志
-        { id: 'changelog', label: 'What\'s New', icon: Sparkles }
+        // 其他
+        { id: 'changelog', label: 'Updates', icon: Sparkles }
     ];
 
     return (

@@ -18,7 +18,6 @@ const Settings = ({ isOpen, onClose }) => {
             const savedCookie = localStorage.getItem('eudic_cookie');
             if (savedCookie) {
                 setEudicCookie(savedCookie);
-                // Fetch channels if cookie exists
                 fetchChannels(savedCookie);
             }
 
@@ -33,7 +32,6 @@ const Settings = ({ isOpen, onClose }) => {
         localStorage.setItem('eudic_cookie', eudicCookie);
         localStorage.setItem('eudic_channel', eudicChannel);
 
-        // Show "Saved!" feedback for 500ms before closing
         setTimeout(() => {
             setIsSaving(false);
             onClose();
@@ -42,19 +40,14 @@ const Settings = ({ isOpen, onClose }) => {
 
     const handleSelectDirectory = async () => {
         const path = await window.api.selectDownloadDirectory();
-        if (path) {
-            setDownloadPath(path);
-        }
+        if (path) setDownloadPath(path);
     };
 
     const fetchChannels = async (cookie) => {
         try {
             const channelList = await window.api.eudicGetChannels(cookie);
-            console.log('Fetched channels:', channelList);
             setChannels(channelList);
-            // If no channel is selected but channels exist, select the first one
             if (!eudicChannel && channelList.length > 0) {
-                // Use Id instead of id
                 setEudicChannel(channelList[0].Id);
             }
         } catch (error) {
@@ -68,25 +61,18 @@ const Settings = ({ isOpen, onClose }) => {
             const cookie = await window.api.eudicFetchCookie();
             setEudicCookie(cookie);
             setEudicStatus('✓ Cookie fetched successfully!');
-
-            // Auto-fetch channels after getting cookie
             setEudicStatus('Fetching channels...');
             await fetchChannels(cookie);
             setEudicStatus('✓ Connected & Channels loaded!');
         } catch (error) {
-            if (error.message.includes('closed')) {
-                setEudicStatus('Login window closed.');
-            } else {
-                setEudicStatus('Failed to fetch cookie.');
-                console.error(error);
-            }
+            setEudicStatus(error.message.includes('closed') ? 'Login window closed.' : 'Failed to fetch cookie.');
         }
     };
 
-    const testEudicConnectionWithCookie = async (cookieToTest) => {
+    const testEudicConnection = async () => {
         setEudicStatus('Testing connection...');
         try {
-            const channelList = await window.api.eudicGetChannels(cookieToTest);
+            const channelList = await window.api.eudicGetChannels(eudicCookie);
             setChannels(channelList);
             setEudicStatus(`✓ Connected! Found ${channelList.length} channels.`);
         } catch (error) {
@@ -94,137 +80,125 @@ const Settings = ({ isOpen, onClose }) => {
         }
     };
 
-    const testEudicConnection = () => testEudicConnectionWithCookie(eudicCookie);
-
     if (!isOpen) return null;
 
     return (
-        <div className="modal-overlay">
-            <div className="modal-content">
-                <div className="modal-header">
-                    <button
-                        className={`tab-button ${activeTab === 'general' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('general')}
-                    >
-                        General
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === 'eudic' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('eudic')}
-                    >
-                        Eudic (每日英语听力)
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === 'gpu' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('gpu')}
-                    >
-                        🎮 GPU 加速
-                    </button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-[#1a2633] rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+                {/* Tabs Header */}
+                <div className="flex gap-2 px-6 pt-6 border-b border-slate-100 dark:border-slate-800">
+                    {[
+                        { id: 'general', label: 'General', icon: 'settings' },
+                        { id: 'eudic', label: 'Eudic', icon: 'headphones' },
+                        { id: 'gpu', label: 'GPU', icon: 'memory' }
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold rounded-t-lg transition-colors ${activeTab === tab.id
+                                    ? 'bg-white dark:bg-[#1a2633] text-primary border-b-2 border-primary'
+                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                        >
+                            <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+                            {tab.label}
+                        </button>
+                    ))}
                 </div>
 
-                <div className="modal-body">
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                     {activeTab === 'general' && (
-                        <div className="form-group">
-                            <label className="form-label">Default Download Directory</label>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <input
-                                    type="text"
-                                    value={downloadPath}
-                                    readOnly
-                                    className="form-input"
-                                    placeholder="Default (Downloads folder)"
-                                    style={{ flex: 1 }}
-                                />
-                                <button
-                                    onClick={handleSelectDirectory}
-                                    className="btn btn-secondary"
-                                >
-                                    Browse
-                                </button>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Default Download Directory</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={downloadPath}
+                                        readOnly
+                                        className="flex-1 h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white"
+                                        placeholder="Default (Downloads folder)"
+                                    />
+                                    <button
+                                        onClick={handleSelectDirectory}
+                                        className="px-4 h-10 bg-primary hover:bg-primary/90 text-white rounded-lg font-medium"
+                                    >
+                                        Browse
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}
 
                     {activeTab === 'eudic' && (
-                        <div className="form-group">
-                            <label className="form-label">Authorization Cookie</label>
-                            <div style={{ marginBottom: '16px' }}>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Authorization Cookie</label>
                                 <button
                                     onClick={handleAutoFetchCookie}
-                                    className="btn"
-                                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                    className="w-full h-10 bg-primary hover:bg-primary/90 text-white rounded-lg font-medium mb-3 flex items-center justify-center gap-2"
                                 >
-                                    🔑 Auto Fetch Cookie (Login)
+                                    <span className="material-symbols-outlined text-[18px]">vpn_key</span>
+                                    Auto Fetch Cookie (Login)
                                 </button>
+                                <textarea
+                                    value={eudicCookie}
+                                    onChange={(e) => setEudicCookie(e.target.value)}
+                                    className="w-full h-20 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white font-mono resize-none"
+                                    placeholder="Or paste your cookie here manually..."
+                                />
                             </div>
-                            <textarea
-                                value={eudicCookie}
-                                onChange={(e) => setEudicCookie(e.target.value)}
-                                className="form-input"
-                                style={{ height: '80px', fontFamily: 'monospace', marginBottom: '16px' }}
-                                placeholder="Or paste your cookie here manually..."
-                            />
 
-                            <label className="form-label">
-                                Upload Channel {channels.length > 0 && <span style={{ fontSize: '12px', color: 'var(--secondary-color)' }}>({channels.length} found)</span>}
-                            </label>
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">
+                                    Upload Channel {channels.length > 0 && <span className="text-xs text-slate-400">({channels.length} found)</span>}
+                                </label>
+                                <select
+                                    className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white"
+                                    value={eudicChannel}
+                                    onChange={(e) => setEudicChannel(e.target.value)}
+                                >
+                                    <option value="">Select a channel...</option>
+                                    {channels.map((channel) => (
+                                        <option key={channel.Id} value={channel.Id}>{channel.Name}</option>
+                                    ))}
+                                </select>
+                            </div>
 
-                            <select
-                                className="form-input"
-                                value={eudicChannel}
-                                onChange={(e) => setEudicChannel(e.target.value)}
-                            >
-                                <option value="">Select a channel...</option>
-                                {channels.map((channel) => (
-                                    <option
-                                        key={channel.Id}
-                                        value={channel.Id}
-                                    >
-                                        {channel.Name}
-                                    </option>
-                                ))}
-                            </select>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
+                            <div className="flex items-center justify-between pt-2">
                                 <button
                                     onClick={testEudicConnection}
-                                    className="btn btn-secondary"
-                                    style={{ fontSize: '13px', padding: '8px 16px' }}
+                                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white rounded-lg font-medium text-sm"
                                 >
                                     Test Connection
                                 </button>
-                                <span style={{
-                                    fontSize: '13px',
-                                    fontWeight: '500',
-                                    color: eudicStatus.startsWith('✓') ? 'var(--secondary-color)' :
-                                        eudicStatus.startsWith('✗') ? 'var(--error-color)' : 'var(--text-secondary)'
-                                }}>
+                                <span className={`text-sm font-medium ${eudicStatus.startsWith('✓') ? 'text-green-600' :
+                                        eudicStatus.startsWith('✗') ? 'text-red-600' :
+                                            'text-slate-500'
+                                    }`}>
                                     {eudicStatus}
                                 </span>
                             </div>
-                            <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginTop: '16px', lineHeight: '1.5' }}>
-                                Tip: Use "Auto Fetch" to log in and get the cookie automatically.
-                            </p>
                         </div>
                     )}
 
-                    {activeTab === 'gpu' && (
-                        <GPUSettings />
-                    )}
+                    {activeTab === 'gpu' && <GPUSettings />}
                 </div>
 
-                <div className="modal-footer">
+                {/* Footer */}
+                <div className="flex gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800">
                     <button
                         onClick={onClose}
-                        className="btn btn-secondary"
                         disabled={isSaving}
+                        className="flex-1 h-10 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white rounded-lg font-medium disabled:opacity-50"
                     >
                         Cancel
                     </button>
                     <button
                         onClick={handleSave}
-                        className="btn"
                         disabled={isSaving}
+                        className="flex-1 h-10 bg-primary hover:bg-primary/90 text-white rounded-lg font-medium disabled:opacity-50"
                     >
                         {isSaving ? 'Saved! ✓' : 'Save Settings'}
                     </button>

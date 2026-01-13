@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import './styles/tailwind.css'
 import './assets/index.css'
 import App from './App'
 

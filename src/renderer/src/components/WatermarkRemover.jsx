@@ -1,351 +1,379 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 export default function WatermarkRemover() {
+    const [mode, setMode] = useState('documents');
     const [files, setFiles] = useState([]);
     const [processing, setProcessing] = useState(false);
-    const [results, setResults] = useState([]);
+    const [dragOver, setDragOver] = useState(false);
     const [options, setOptions] = useState({
-        method: 'advanced',
-        coverMode: false
+        coverMode: false,
+        useBlur: false,
+        coverColor: '#FFFFFF'
     });
+
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [imageInfo, setImageInfo] = useState(null);
+    const [regions, setRegions] = useState([]);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [currentRect, setCurrentRect] = useState(null);
+    const canvasRef = useRef(null);
     const completedCount = useRef(0);
 
     useEffect(() => {
-        return () => {
-            window.api.watermarkOffProgress();
-        };
+        return () => window.api.watermarkOffProgress();
     }, []);
 
+    // Document handlers
     const handleSelectFiles = async () => {
-        const selectedFiles = await window.api.watermarkSelectFiles();
-        if (selectedFiles && selectedFiles.length > 0) {
-            const fileData = await Promise.all(
-                selectedFiles.map(async (filePath) => {
-                    const detection = await window.api.watermarkDetect(filePath);
-                    return {
-                        path: filePath,
-                        name: filePath.split('\\').pop(),
-                        type: filePath.toLowerCase().endsWith('.pdf') ? 'PDF' : 'Word',
-                        status: 'pending',
-                        detection
-                    };
-                })
-            );
+        const selected = await window.api.watermarkSelectFiles();
+        if (selected?.length > 0) {
+            const fileData = await Promise.all(selected.map(async (path) => {
+                const detection = await window.api.watermarkDetect(path);
+                const ext = path.toLowerCase().split('.').pop();
+                return { path, name: path.split('\\').pop(), type: ext === 'pdf' ? 'PDF' : 'Word', status: 'pending', detection };
+            }));
             setFiles(fileData);
-            setResults([]);
             completedCount.current = 0;
         }
     };
 
-    const handleRemoveWatermarks = () => {
+    const handleProcess = () => {
         if (files.length === 0) return;
-
         setProcessing(true);
         completedCount.current = 0;
-        const id = Date.now();
-
         window.api.watermarkRemove(
-            {
-                files: files.map(f => f.path),
-                options: options,
-                id
-            },
+            { files: files.map(f => f.path), options, id: Date.now() },
             (type, result) => {
                 if (type === 'progress') {
-                    setFiles(prevFiles =>
-                        prevFiles.map(f =>
-                            f.path === result.file ? { ...f, status: result.status } : f
-                        )
-                    );
+                    setFiles(prev => prev.map(f => f.path === result.file ? { ...f, status: result.status } : f));
                 } else if (type === 'complete') {
-                    setFiles(prevFiles =>
-                        prevFiles.map(f =>
-                            f.path === result.file
-                                ? { ...f, status: result.success ? 'completed' : 'failed', result }
-                                : f
-                        )
-                    );
-
-                    setResults(prev => [...prev, result]);
+                    setFiles(prev => prev.map(f => f.path === result.file ? { ...f, status: result.success ? 'completed' : 'failed', result } : f));
                     completedCount.current++;
-
-                    // Check if all completed
-                    if (completedCount.current >= files.length) {
-                        setProcessing(false);
-                    }
+                    if (completedCount.current >= files.length) setProcessing(false);
                 }
             }
         );
     };
 
-    const handleRemoveFile = (index) => {
-        setFiles(files.filter((_, i) => i !== index));
-    };
-
-    const handleClear = () => {
-        setFiles([]);
-        setResults([]);
-        completedCount.current = 0;
-    };
-
-    const getFileIcon = (type) => {
-        if (type === 'PDF') {
-            return (
-                <svg className="w-6 h-6 text-red-500" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 4h6v6h6v10H6V4z" />
-                    <path d="M8 12h8v2H8zm0 3h8v2H8z" />
-                </svg>
-            );
-        }
-        return (
-            <svg className="w-6 h-6 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 4h6v6h6v10H6V4z" />
-                <path d="M8 12h8v2H8zm0 3h5v2H8z" />
-            </svg>
-        );
-    };
-
-    const getStatusBadge = (file) => {
-        const baseClasses = "px-2 py-1 text-xs font-medium rounded-full inline-flex items-center gap-1";
-
-        switch (file.status) {
-            case 'pending':
-                return <span className={`${baseClasses} bg-gray-100 text-gray-600`}>⏳ Pending</span>;
-            case 'processing':
-                return <span className={`${baseClasses} bg-blue-100 text-blue-700`}>
-                    <span className="animate-spin">⚙️</span> Processing...
-                </span>;
-            case 'completed':
-                return <span className={`${baseClasses} bg-green-100 text-green-700`}>✓ Completed</span>;
-            case 'failed':
-                return <span className={`${baseClasses} bg-red-100 text-red-700`}>✗ Failed</span>;
-            default:
-                return null;
+    // Image handlers
+    const handleSelectImage = async () => {
+        const selected = await window.api.watermarkSelectImages();
+        if (selected?.length > 0) {
+            setSelectedImage(selected[0]);
+            setRegions([]);
+            try {
+                setImageInfo(await window.api.watermarkGetImageInfo(selected[0]));
+            } catch (e) { console.error(e); }
         }
     };
+
+    const handleMouseDown = useCallback((e) => {
+        if (!canvasRef.current) return;
+        const rect = canvasRef.current.getBoundingClientRect();
+        setIsDrawing(true);
+        setCurrentRect({ startX: e.clientX - rect.left, startY: e.clientY - rect.top, x: e.clientX - rect.left, y: e.clientY - rect.top, width: 0, height: 0 });
+    }, []);
+
+    const handleMouseMove = useCallback((e) => {
+        if (!isDrawing || !canvasRef.current || !currentRect) return;
+        const rect = canvasRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left, y = e.clientY - rect.top;
+        setCurrentRect(prev => ({
+            ...prev,
+            x: x - prev.startX >= 0 ? prev.startX : x,
+            y: y - prev.startY >= 0 ? prev.startY : y,
+            width: Math.abs(x - prev.startX),
+            height: Math.abs(y - prev.startY)
+        }));
+    }, [isDrawing, currentRect]);
+
+    const handleMouseUp = useCallback(() => {
+        if (currentRect?.width > 10 && currentRect?.height > 10 && imageInfo && canvasRef.current) {
+            const scaleX = imageInfo.width / canvasRef.current.width;
+            const scaleY = imageInfo.height / canvasRef.current.height;
+            setRegions(prev => [...prev, {
+                id: Date.now(), x: currentRect.x * scaleX, y: currentRect.y * scaleY,
+                width: currentRect.width * scaleX, height: currentRect.height * scaleY,
+                displayX: currentRect.x, displayY: currentRect.y,
+                displayWidth: currentRect.width, displayHeight: currentRect.height
+            }]);
+        }
+        setIsDrawing(false);
+        setCurrentRect(null);
+    }, [currentRect, imageInfo]);
+
+    const handleProcessImage = async () => {
+        if (!selectedImage || regions.length === 0) return;
+        setProcessing(true);
+        try {
+            const result = await window.api.watermarkRemoveImage({
+                filePath: selectedImage,
+                regions: regions.map(r => ({ x: r.x, y: r.y, width: r.width, height: r.height, color: options.coverColor })),
+                options: { useBlur: options.useBlur, blurAmount: 20, coverColor: options.coverColor }
+            });
+            if (result.success) {
+                alert(`Done! Saved to: ${result.outputPath}`);
+                setSelectedImage(null); setImageInfo(null); setRegions([]);
+            } else alert(`Failed: ${result.error}`);
+        } catch (e) { alert(`Error: ${e.message}`); }
+        finally { setProcessing(false); }
+    };
+
+    const completedFiles = files.filter(f => f.status === 'completed').length;
 
     return (
-        <div className="h-full overflow-auto p-6">
-            {/* Header */}
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
-                    <span className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center text-white text-lg shadow-lg">
-                        🗑️
-                    </span>
-                    Watermark Remover
-                </h1>
-                <p className="text-gray-500 mt-2 ml-13">Easily remove watermarks from PDF and Word documents</p>
-            </div>
-
-            {/* Main Content Card */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                {/* Action Bar */}
-                <div className="p-4 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100">
-                    <div className="flex items-center gap-3 flex-wrap">
-                        <button
-                            onClick={handleSelectFiles}
-                            className="btn btn-primary flex items-center gap-2 px-5 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all"
-                            disabled={processing}
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                            </svg>
-                            Select Files
-                        </button>
-
-                        {files.length > 0 && (
-                            <>
-                                <button
-                                    onClick={handleRemoveWatermarks}
-                                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium shadow-sm hover:shadow-lg hover:from-purple-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                    disabled={processing}
-                                >
-                                    {processing ? (
-                                        <>
-                                            <span className="animate-spin">⚙️</span>
-                                            Processing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                            </svg>
-                                            Remove Watermarks
-                                        </>
-                                    )}
-                                </button>
-
-                                <button
-                                    onClick={handleClear}
-                                    className="btn btn-secondary px-4 py-2.5 rounded-xl"
-                                    disabled={processing}
-                                >
-                                    Clear All
-                                </button>
-
-                                <div className="ml-auto flex items-center gap-3">
-                                    <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={options.coverMode}
-                                            onChange={(e) => setOptions({ ...options, coverMode: e.target.checked })}
-                                            className="w-4 h-4 text-purple-500 rounded border-gray-300 focus:ring-purple-500"
-                                            disabled={processing}
-                                        />
-                                        Cover Mode (PDF)
-                                    </label>
-                                </div>
-                            </>
-                        )}
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#fafbfc] dark:bg-[#0d1117]">
+            {/* Minimal Header */}
+            <div className="px-8 py-5 border-b border-slate-200/60 dark:border-slate-800/60 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+                <div className="max-w-5xl mx-auto flex items-center justify-between">
+                    <div>
+                        <h1 className="text-xl font-semibold text-slate-800 dark:text-white tracking-tight">Watermark Remover</h1>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Remove watermarks from documents and images instantly</p>
+                    </div>
+                    {/* Elegant Tab Switch */}
+                    <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                        {['documents', 'images'].map(m => (
+                            <button key={m} onClick={() => { setMode(m); setFiles([]); setSelectedImage(null); setImageInfo(null); setRegions([]); }}
+                                className={`px-5 py-2 text-sm font-medium rounded-lg transition-all ${mode === m 
+                                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' 
+                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                                {m === 'documents' ? 'Documents' : 'Images'}
+                            </button>
+                        ))}
                     </div>
                 </div>
+            </div>
 
-                {/* File List */}
-                {files.length > 0 ? (
-                    <div className="p-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-sm font-semibold text-gray-700">
-                                {files.length} file(s) selected
-                            </h3>
-                            {results.length > 0 && (
-                                <span className="text-sm text-gray-500">
-                                    Completed: {results.filter(r => r.success).length}/{files.length}
-                                </span>
-                            )}
-                        </div>
-
-                        <div className="space-y-3">
-                            {files.map((file, index) => (
-                                <div
-                                    key={index}
-                                    className={`group relative p-4 rounded-xl border transition-all duration-200 ${file.status === 'completed'
-                                        ? 'bg-green-50 border-green-200'
-                                        : file.status === 'failed'
-                                            ? 'bg-red-50 border-red-200'
-                                            : file.status === 'processing'
-                                                ? 'bg-blue-50 border-blue-200'
-                                                : 'bg-gray-50 border-gray-200 hover:border-gray-300'
-                                        }`}
-                                >
-                                    <div className="flex items-start gap-4">
-                                        {/* File Icon */}
-                                        <div className="flex-shrink-0 mt-0.5">
-                                            {getFileIcon(file.type)}
+            {/* Main Content - Centered */}
+            <div className="flex-1 overflow-auto">
+                <div className="max-w-5xl mx-auto px-8 py-8">
+                    {mode === 'documents' ? (
+                        /* ===== DOCUMENT MODE ===== */
+                        <div className="space-y-6">
+                            {/* Upload Zone */}
+                            <div 
+                                onClick={!processing ? handleSelectFiles : undefined}
+                                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                                onDragLeave={() => setDragOver(false)}
+                                onDrop={(e) => { e.preventDefault(); setDragOver(false); }}
+                                className={`relative rounded-2xl border-2 border-dashed transition-all cursor-pointer
+                                    ${dragOver ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-slate-200 dark:border-slate-700 hover:border-primary/50 dark:hover:border-primary/50'}
+                                    ${files.length > 0 ? 'p-6' : 'p-16'}`}
+                            >
+                                {files.length === 0 ? (
+                                    <div className="text-center">
+                                        <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-slate-400 text-3xl">upload_file</span>
                                         </div>
-
-                                        {/* File Info */}
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-3 mb-1">
-                                                <h4 className="text-sm font-medium text-gray-900 truncate">
-                                                    {file.name}
-                                                </h4>
-                                                <span className={`px-2 py-0.5 text-xs font-medium rounded ${file.type === 'PDF' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                                                    }`}>
-                                                    {file.type}
-                                                </span>
-                                            </div>
-
-                                            {/* Detection Info */}
-                                            {file.detection && (
-                                                <div className="text-xs mb-2">
-                                                    {file.detection.hasWatermark ? (
-                                                        <span className="text-amber-600 flex items-center gap-1">
-                                                            <span>⚠️</span>
-                                                            Watermark detected
-                                                            {file.detection.confidence && (
-                                                                <span className="text-gray-400 ml-1">
-                                                                    ({file.detection.confidence === 'high' ? 'High confidence' : 'Medium confidence'})
-                                                                </span>
-                                                            )}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-green-600 flex items-center gap-1">
-                                                            <span>✓</span>
-                                                            No watermark detected
-                                                        </span>
-                                                    )}
+                                        <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">Drop your files here</h3>
+                                        <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">or click to browse</p>
+                                        <div className="flex justify-center gap-3">
+                                            <span className="px-3 py-1.5 text-[#E53935] text-xs font-semibold">PDF</span>
+                                            <span className="px-3 py-1.5 text-[#2196F3] text-xs font-semibold">DOCX</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {files.map((file, i) => (
+                                            <div key={i} className={`flex items-center gap-4 p-4 rounded-xl transition-all ${
+                                                file.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-900/20' :
+                                                file.status === 'processing' ? 'bg-primary/5 dark:bg-primary/10' :
+                                                file.status === 'failed' ? 'bg-red-50 dark:bg-red-900/20' :
+                                                'bg-slate-50 dark:bg-slate-800/50'}`}>
+                                                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#E3F2FD] dark:bg-blue-900/30">
+                                                    <span className="material-symbols-outlined text-[#2196F3]">
+                                                        {file.type === 'PDF' ? 'picture_as_pdf' : 'description'}
+                                                    </span>
                                                 </div>
-                                            )}
-
-                                            {/* Status */}
-                                            <div className="flex items-center gap-2">
-                                                {getStatusBadge(file)}
-                                                {file.result?.message && file.status === 'completed' && (
-                                                    <span className="text-xs text-gray-500">{file.result.message}</span>
-                                                )}
-                                                {file.result?.error && file.status === 'failed' && (
-                                                    <span className="text-xs text-red-500">{file.result.error}</span>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{file.name}</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5 capitalize">{file.status}</p>
+                                                </div>
+                                                {file.status === 'completed' && <span className="text-emerald-500 material-symbols-outlined">check_circle</span>}
+                                                {file.status === 'processing' && <span className="text-primary material-symbols-outlined animate-spin">progress_activity</span>}
+                                                {file.status === 'failed' && <span className="text-red-500 material-symbols-outlined">error</span>}
+                                                {file.status === 'pending' && !processing && (
+                                                    <button onClick={(e) => { e.stopPropagation(); setFiles(files.filter((_, j) => j !== i)); }}
+                                                        className="text-slate-400 hover:text-red-500 transition-colors">
+                                                        <span className="material-symbols-outlined text-xl">close</span>
+                                                    </button>
                                                 )}
                                             </div>
-
-                                            {/* Output Path */}
-                                            {file.result?.outputPath && file.status === 'completed' && (
-                                                <div className="mt-2 text-xs text-gray-400 truncate">
-                                                    📁 {file.result.outputPath}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Remove Button */}
+                                        ))}
                                         {!processing && (
-                                            <button
-                                                onClick={() => handleRemoveFile(index)}
-                                                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                                                title="Remove"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                </svg>
+                                            <button onClick={(e) => { e.stopPropagation(); handleSelectFiles(); }}
+                                                className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 hover:text-primary hover:border-primary/50 transition-all text-sm font-medium">
+                                                + Add more files
                                             </button>
                                         )}
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                ) : (
-                    /* Empty State */
-                    <div className="p-12 text-center">
-                        <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-purple-100 to-pink-100 rounded-2xl flex items-center justify-center">
-                            <svg className="w-10 h-10 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                            </svg>
-                        </div>
-                        <h3 className="text-lg font-medium text-gray-700 mb-2">Select files to process</h3>
-                        <p className="text-gray-400 text-sm mb-6">Supports PDF and Word (.docx) formats</p>
-                        <button
-                            onClick={handleSelectFiles}
-                            className="btn btn-primary px-6 py-2.5 rounded-xl"
-                        >
-                            Select Files
-                        </button>
-                    </div>
-                )}
-            </div>
+                                )}
+                            </div>
 
-            {/* Info Card */}
-            <div className="mt-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-5 border border-blue-100">
-                <h4 className="text-sm font-semibold text-blue-800 mb-3 flex items-center gap-2">
-                    <span>💡</span>
-                    Instructions
-                </h4>
-                <div className="grid md:grid-cols-2 gap-4 text-sm text-blue-700">
-                    <div className="flex items-start gap-2">
-                        <span className="text-blue-400">•</span>
-                        <span><strong>Word Documents</strong>: Supports removing text and image watermarks with high success rate</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                        <span className="text-blue-400">•</span>
-                        <span><strong>PDF Documents</strong>: Supports removing annotation watermarks and layer watermarks</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                        <span className="text-blue-400">•</span>
-                        <span>Output files will be saved in the same directory as the original</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                        <span className="text-blue-400">•</span>
-                        <span>Original files will not be modified</span>
-                    </div>
+                            {/* Options & Actions */}
+                            {files.length > 0 && (
+                                <div className="flex items-center justify-between">
+                                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+                                        <input type="checkbox" checked={options.coverMode} onChange={e => setOptions({...options, coverMode: e.target.checked})}
+                                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary" disabled={processing} />
+                                        Cover mode for PDF
+                                    </label>
+                                    <div className="flex items-center gap-3">
+                                        {!processing && files.length > 0 && (
+                                            <button onClick={() => { setFiles([]); }} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">
+                                                Clear all
+                                            </button>
+                                        )}
+                                        <button onClick={handleProcess} disabled={processing || files.length === 0}
+                                            className="px-6 py-2.5 bg-gradient-to-r from-[#2196F3] to-[#42A5F5] hover:from-[#1E88E5] hover:to-[#2196F3] text-white text-sm font-medium rounded-xl  transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                                            {processing ? (
+                                                <><span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>Processing {completedFiles}/{files.length}</>
+                                            ) : (
+                                                <><span className="material-symbols-outlined text-lg">auto_fix_high</span>Remove Watermarks</>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Info Cards */}
+                            <div className="grid grid-cols-3 gap-4 mt-8">
+                                {[
+                                    { icon: 'description', title: 'Word Documents', desc: 'Remove text & image watermarks' },
+                                    { icon: 'picture_as_pdf', title: 'PDF Files', desc: 'Remove annotation & layer watermarks' },
+                                    { icon: 'folder_copy', title: 'Batch Processing', desc: 'Process multiple files at once' }
+                                ].map((item, i) => (
+                                    <div key={i} className="p-5 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                        <span className="material-symbols-outlined text-[#2196F3] text-2xl mb-3 block">{item.icon}</span>
+                                        <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">{item.title}</h4>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ) : (
+                        /* ===== IMAGE MODE ===== */
+                        <div className="space-y-6">
+                            {!selectedImage ? (
+                                /* Upload Zone */
+                                <div onClick={handleSelectImage}
+                                    className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-primary/50 dark:hover:border-primary p-16 cursor-pointer transition-all">
+                                    <div className="text-center">
+                                        <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-slate-400 text-3xl">add_photo_alternate</span>
+                                        </div>
+                                        <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">Select an image</h3>
+                                        <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">Click to choose a file</p>
+                                        <div className="flex justify-center gap-3">
+                                            <span className="px-3 py-1.5 text-[#4CAF50] text-xs font-semibold">JPG</span>
+                                            <span className="px-3 py-1.5 text-[#2196F3] text-xs font-semibold">PNG</span>
+                                            <span className="px-3 py-1.5 text-[#9C27B0] text-xs font-semibold">WebP</span>
+                                            <span className="px-3 py-1.5 text-[#FF9800] text-xs font-semibold">GIF</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                /* Image Editor */
+                                <div className="space-y-4">
+                                    {/* Toolbar */}
+                                    <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                        <div className="flex items-center gap-4">
+                                            <button onClick={handleSelectImage} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-primary transition-colors flex items-center gap-2">
+                                                <span className="material-symbols-outlined text-lg">add_photo_alternate</span>
+                                                Change Image
+                                            </button>
+                                            <div className="h-6 w-px bg-slate-200 dark:bg-slate-700"></div>
+                                            <span className="text-sm text-slate-500 dark:text-slate-400">
+                                                {regions.length} region{regions.length !== 1 ? 's' : ''} selected
+                                            </span>
+                                            {regions.length > 0 && (
+                                                <button onClick={() => setRegions([])} className="text-sm text-red-500 hover:text-red-600 transition-colors">
+                                                    Clear all
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 cursor-pointer">
+                                                <input type="checkbox" checked={options.useBlur} onChange={e => setOptions({...options, useBlur: e.target.checked})}
+                                                    className="w-4 h-4 rounded border-slate-300 text-primary" disabled={processing} />
+                                                Blur effect
+                                            </label>
+                                            {!options.useBlur && (
+                                                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                                    Fill:
+                                                    <input type="color" value={options.coverColor} onChange={e => setOptions({...options, coverColor: e.target.value})}
+                                                        className="w-7 h-7 rounded-lg cursor-pointer border border-slate-200" disabled={processing} />
+                                                </label>
+                                            )}
+                                            <button onClick={handleProcessImage} disabled={processing || regions.length === 0}
+                                                className="px-5 py-2 bg-gradient-to-r from-[#2196F3] to-[#42A5F5] hover:from-[#1E88E5] hover:to-[#2196F3] text-white text-sm font-medium rounded-xl  transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                                                {processing ? (
+                                                    <><span className="material-symbols-outlined animate-spin">progress_activity</span>Processing</>
+                                                ) : (
+                                                    <><span className="material-symbols-outlined">check</span>Apply</>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Canvas Area */}
+                                    <div className="rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+                                        <div className="p-2 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                                            <span className="text-xs text-slate-500 dark:text-slate-400 px-2">{selectedImage?.split('\\').pop()}</span>
+                                            {imageInfo && <span className="text-xs text-slate-400 px-2">{imageInfo.width} × {imageInfo.height}</span>}
+                                        </div>
+                                        <div className="p-6 flex items-center justify-center min-h-[400px] bg-[repeating-conic-gradient(#f1f5f9_0%_25%,#fff_0%_50%)] dark:bg-[repeating-conic-gradient(#1e293b_0%_25%,#0f172a_0%_50%)] bg-[length:20px_20px]">
+                                            {imageInfo && (
+                                                <div className="relative inline-block shadow-2xl rounded-lg overflow-hidden">
+                                                    <img src={imageInfo.preview} alt="Preview" className="max-w-full max-h-[55vh] object-contain"
+                                                        onLoad={e => { if (canvasRef.current) { canvasRef.current.width = e.target.width; canvasRef.current.height = e.target.height; }}} />
+                                                    <canvas ref={canvasRef} className="absolute inset-0 cursor-crosshair" style={{ width: '100%', height: '100%' }}
+                                                        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} />
+                                                    
+                                                    {regions.map(r => (
+                                                        <div key={r.id} className="absolute border-2 border-rose-500 bg-rose-500/20 group"
+                                                            style={{ left: r.displayX, top: r.displayY, width: r.displayWidth, height: r.displayHeight }}>
+                                                            <button onClick={() => setRegions(prev => prev.filter(x => x.id !== r.id))}
+                                                                className="absolute -top-2 -right-2 w-5 h-5 bg-rose-500 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow">
+                                                                �?
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    
+                                                    {currentRect && (
+                                                        <div className="absolute border-2 border-dashed border-primary bg-primary/20 pointer-events-none"
+                                                            style={{ left: currentRect.x, top: currentRect.y, width: currentRect.width, height: currentRect.height }} />
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Help Text */}
+                                    <p className="text-center text-sm text-slate-400 dark:text-slate-500">
+                                        Drag on the image to select watermark areas �?Click �?to remove a selection
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Info Cards - Only show when no image */}
+                            {!selectedImage && (
+                                <div className="grid grid-cols-3 gap-4 mt-8">
+                                    {[
+                                        { icon: 'gesture', title: 'Select Regions', desc: 'Draw rectangles over watermarks' },
+                                        { icon: 'blur_on', title: 'Blur or Fill', desc: 'Choose blur effect or solid color' },
+                                        { icon: 'download', title: 'Save Result', desc: 'Original file stays untouched' }
+                                    ].map((item, i) => (
+                                        <div key={i} className="p-5 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                            <span className="material-symbols-outlined text-[#2196F3] text-2xl mb-3 block">{item.icon}</span>
+                                            <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">{item.title}</h4>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -25,6 +25,11 @@ extraResources:
     to: bin
     filter:
       - "**/*"
+  - from: resources/hashcat
+    to: hashcat
+    filter:
+      - "**/*"
+      - "!*.7z"
 
 win:
   executableName: ProFlowStudio

@@ -8,9 +8,9 @@ import { app } from 'electron';
  */
 class GPUSettingsStore {
     constructor() {
-        // Store settings in userData directory
-        const userDataPath = app.getPath('userData');
-        this.settingsPath = path.join(userDataPath, 'gpu-settings.json');
+        // Defer initialization to avoid app.getPath issues during module load
+        this._initialized = false;
+        this.settingsPath = null;
 
         this.defaults = {
             enabled: true,  // GPU acceleration master switch
@@ -33,11 +33,28 @@ class GPUSettingsStore {
             showPerformanceStats: true
         };
 
-        this.settings = this.load();
+        this.settings = { ...this.defaults };
+    }
+
+    // Lazy initialization to ensure app is ready
+    ensureInitialized() {
+        if (this._initialized) return;
+
+        try {
+            const { app } = require('electron');
+            const userDataPath = app.getPath('userData');
+            this.settingsPath = path.join(userDataPath, 'gpu-settings.json');
+            this.settings = this.load();
+            this._initialized = true;
+        } catch (error) {
+            console.warn('[GPUSettings] Could not initialize, using defaults:', error.message);
+        }
     }
 
     // Load settings from file
     load() {
+        // Note: Don't call ensureInitialized here as it's called during init
+        if (!this.settingsPath) return { ...this.defaults };
         try {
             if (fs.existsSync(this.settingsPath)) {
                 const data = fs.readFileSync(this.settingsPath, 'utf8');
@@ -64,11 +81,13 @@ class GPUSettingsStore {
 
     // Get all settings
     getSettings() {
+        this.ensureInitialized();
         return this.settings;
     }
 
     // Update settings
     updateSettings(newSettings) {
+        this.ensureInitialized();
         this.settings = { ...this.settings, ...newSettings };
         this.save();
         return this.settings;

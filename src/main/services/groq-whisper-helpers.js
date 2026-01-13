@@ -4,14 +4,15 @@ import os from 'os';
 
 /**
  * Check if audio format needs conversion for better transcription
+ * Now converts ALL files except MP3 for better compatibility
  */
 export function needsFormatConversion(audioPath) {
     const ext = path.extname(audioPath).toLowerCase();
-    // WebM, Opus, and other formats that may cause garbled output
-    const problematicFormats = ['.webm', '.opus', '.ogg', '.flac'];
-    const needs = problematicFormats.includes(ext);
+    // Only MP3 doesn't need conversion - all other formats will be converted
+    const noConversionNeeded = ['.mp3'];
+    const needs = !noConversionNeeded.includes(ext);
     if (needs) {
-        console.log(`[Groq Whisper] Format ${ext} needs conversion for better compatibility`);
+        console.log(`[Groq Whisper] Format ${ext} will be converted to MP3 for optimal quality`);
     }
     return needs;
 }

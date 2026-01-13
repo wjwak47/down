@@ -1,29 +1,66 @@
-import { autoUpdater } from 'electron-updater';
-import { dialog, BrowserWindow } from 'electron';
-import log from 'electron-log';
+// Lazy-loaded electron-updater to avoid initialization during module load
+let autoUpdater = null;
+let log = null;
 
-// Configure logging
-autoUpdater.logger = log;
-autoUpdater.logger.transports.file.level = 'info';
+const initAutoUpdater = async () => {
+    if (autoUpdater) return autoUpdater;
+
+    try {
+        const updaterModule = await import('electron-updater');
+        const logModule = await import('electron-log');
+
+        autoUpdater = updaterModule.autoUpdater;
+        log = logModule.default;
+
+        // Configure logging
+        autoUpdater.logger = log;
+        autoUpdater.logger.transports.file.level = 'info';
+
+        return autoUpdater;
+    } catch (error) {
+        console.error('[AutoUpdater] Failed to initialize:', error.message);
+        return null;
+    }
+};
 
 class AutoUpdateService {
     constructor() {
         this.mainWindow = null;
         this.updateDownloaded = false;
-        this.silent = false; // Flag for silent checks (no dialog if already latest)
+        this.silent = false;
+        this._initialized = false;
+    }
+
+    async initialize() {
+        if (this._initialized) return;
+
+        const updater = await initAutoUpdater();
+        if (!updater) {
+            console.warn('[AutoUpdater] Could not initialize - skipping setup');
+            return;
+        }
 
         // Configure auto-updater
-        autoUpdater.autoDownload = false; // Manual download control
+        autoUpdater.autoDownload = false;
         autoUpdater.autoInstallOnAppQuit = true;
 
         this.setupListeners();
+        this._initialized = true;
     }
 
     setMainWindow(window) {
         this.mainWindow = window;
+        // Initialize when main window is set (this happens after app is ready)
+        this.initialize().catch(err => {
+            console.error('[AutoUpdater] Initialization error:', err.message);
+        });
     }
 
     setupListeners() {
+        if (!autoUpdater) return;
+
+        const { dialog } = require('electron');
+
         // Checking for update
         autoUpdater.on('checking-for-update', () => {
             this.sendStatusToWindow('Checking for updates...');
@@ -50,7 +87,6 @@ class AutoUpdateService {
         autoUpdater.on('update-not-available', (info) => {
             this.sendStatusToWindow('update-not-available');
 
-            // Only show dialog if not in silent mode (manual check)
             if (!this.silent) {
                 dialog.showMessageBox(this.mainWindow, {
                     type: 'info',
@@ -92,14 +128,26 @@ class AutoUpdateService {
         autoUpdater.on('error', (err) => {
             this.sendStatusToWindow('error', err);
 
-            // Only show error dialog if not in silent mode
             if (!this.silent) {
-                dialog.showMessageBox(this.mainWindow, {
-                    type: 'error',
-                    title: 'Update Error',
-                    message: 'Failed to check for updates',
-                    detail: err.message
-                });
+                const isMissingConfig = err.message && err.message.includes('app-update.yml');
+                const isEnoent = err.code === 'ENOENT' || (err.message && err.message.includes('ENOENT'));
+
+                if (isMissingConfig || isEnoent) {
+                    console.warn('[AutoUpdater] Update configuration not found - this is expected for non-packaged builds');
+                    dialog.showMessageBox(this.mainWindow, {
+                        type: 'info',
+                        title: 'Update Check Unavailable',
+                        message: 'Auto-update is not available',
+                        detail: 'This feature is only available in packaged releases. Please check GitHub for the latest version manually.'
+                    });
+                } else {
+                    dialog.showMessageBox(this.mainWindow, {
+                        type: 'error',
+                        title: 'Update Error',
+                        message: 'Failed to check for updates',
+                        detail: err.message
+                    });
+                }
             }
         });
     }
@@ -110,13 +158,37 @@ class AutoUpdateService {
         }
     }
 
-    checkForUpdates(silent = false) {
+    async checkForUpdates(silent = false) {
         this.silent = silent;
-        autoUpdater.checkForUpdates();
+
+        if (!this._initialized) {
+            await this.initialize();
+        }
+
+        if (!autoUpdater) {
+            console.warn('[AutoUpdater] Not available - skipping update check');
+            return;
+        }
+
+        try {
+            autoUpdater.checkForUpdates();
+        } catch (error) {
+            console.error('[AutoUpdater] Failed to check for updates:', error.message);
+
+            if (!silent && this.mainWindow && !this.mainWindow.isDestroyed()) {
+                const { dialog } = require('electron');
+                dialog.showMessageBox(this.mainWindow, {
+                    type: 'error',
+                    title: 'Update Check Failed',
+                    message: 'Unable to check for updates',
+                    detail: 'Please ensure you are using a packaged version of the application.'
+                });
+            }
+        }
     }
 
     quitAndInstall() {
-        if (this.updateDownloaded) {
+        if (this.updateDownloaded && autoUpdater) {
             autoUpdater.quitAndInstall(false, true);
         }
     }
