@@ -155,7 +155,12 @@ async function detectEncryption(archivePath) {
                 } catch (e) {}
             }
             
-            const canUseHashcat = isHashcatAvailable() && hashcatMode !== null && isJohnToolAvailable(format) && !fileTooLarge;
+            // œÍœ∏µ˜ ‘»’÷æ
+            const hashcatAvail = isHashcatAvailable();
+            const johnToolAvail = isJohnToolAvailable(format);
+            console.log('[detectEncryption] Hashcat check:', { hashcatAvail, hashcatMode, johnToolAvail, format, fileTooLarge, isEncrypted });
+            
+            const canUseHashcat = hashcatAvail && hashcatMode !== null && johnToolAvail && !fileTooLarge;
             const canUseBkcrack = isZipCrypto && isBkcrackAvailable();
             
             // ???????
@@ -744,6 +749,7 @@ async function crackWithSmartStrategy(archivePath, options, event, id, session, 
     }
 
     // Hashcat GPU - ??? ZIP/RAR/7z
+    console.log('[Crack] GPU decision:', { useGpu: options.useGpu, canUseHashcat: encryption.canUseHashcat });
     if (options.useGpu && encryption.canUseHashcat) {
         console.log('[Crack] Strategy: Hashcat GPU (mode:', encryption.hashcatMode, ')');
         return await crackWithHashcat(archivePath, options, event, id, session, startTime, encryption);
