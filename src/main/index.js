@@ -73,7 +73,7 @@ function createWindow() {
         minHeight: minHeight,
         show: false,
         autoHideMenuBar: true,
-        title: 'ProFlow Studio v1.1.2',
+        title: 'ProFlow Studio v1.1.4',
         center: true,
         icon: join(__dirname, '../../build/icon.png'),
         ...(process.platform === 'linux' ? {} : {}),

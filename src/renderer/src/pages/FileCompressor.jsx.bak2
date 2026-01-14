@@ -1,0 +1,1025 @@
+﻿import { useState, useEffect } from 'react';
+
+const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
+    // Core state
+    const [files, setFiles] = useState([]);
+    const [mode, setMode] = useState('compress'); // compress, extract, crack
+    const [processing, setProcessing] = useState(false);
+    const [progress, setProgress] = useState({});
+    const [dragOver, setDragOver] = useState(false);
+
+    // Compression options
+    const [compressionLevel, setCompressionLevel] = useState(() => localStorage.getItem('compressionLevel') || 'normal');
+    const [outputFormat, setOutputFormat] = useState('zip');
+    const [showAdvanced, setShowAdvanced] = useState(false);
+
+    // Password options
+    const [usePassword, setUsePassword] = useState(false);
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+
+    // Split options
+    const [splitArchive, setSplitArchive] = useState(false);
+    const [volumeSize, setVolumeSize] = useState('100MB');
+
+    // Crack options
+    const [attackMode, setAttackMode] = useState('dictionary');
+    const [charset, setCharset] = useState(['lowercase', 'numbers']);
+    const [minLength, setMinLength] = useState(1);
+    const [maxLength, setMaxLength] = useState(8);
+    const [crackStats, setCrackStats] = useState({ speed: 0, attempts: 0, progress: 0, currentLength: 1 });
+    const [foundPassword, setFoundPassword] = useState(null);
+    const [useCpuMultiThread, setUseCpuMultiThread] = useState(() => localStorage.getItem('useCpuMultiThread') !== 'false');
+    const [gpuAvailable, setGpuAvailable] = useState(false);
+    const [cpuCores, setCpuCores] = useState(4);
+    const [crackJobId, setCrackJobId] = useState(null);
+    const [encryptionInfo, setEncryptionInfo] = useState(null);
+    const [crackMethod, setCrackMethod] = useState(null);
+
+    // Check GPU availability on mount
+    useEffect(() => {
+        if (window.api?.zipCheckGpu) {
+            window.api.zipCheckGpu().then(result => {
+                setGpuAvailable(result?.available || false);
+            }).catch(() => setGpuAvailable(false));
+        }
+        setCpuCores(navigator.hardwareConcurrency || 4);
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem('useCpuMultiThread', useCpuMultiThread.toString());
+    }, [useCpuMultiThread]);
+
+    useEffect(() => {
+        localStorage.setItem('compressionLevel', compressionLevel);
+    }, [compressionLevel]);
+
+    useEffect(() => {
+        const handleProgress = ({ status, entries, total, percent }) => {
+            const p = percent || (total ? Math.round((entries / total) * 100) : 0);
+            setProgress(prev => ({ ...prev, ['current-job']: { status, percent: p } }));
+        };
+        const handleComplete = ({ success, error, outputPath }) => {
+            setProgress(prev => ({ ...prev, ['current-job']: { status: success ? 'completed' : 'error', percent: 100, error, outputPath } }));
+            setProcessing(false);
+        };
+        window.api.onZipProgress(handleProgress);
+        window.api.onZipComplete(handleComplete);
+        return () => { };
+    }, []);
+
+    useEffect(() => {
+        if (pendingFiles?.length > 0) {
+            setFiles(prev => [...prev, ...pendingFiles.filter(p => !prev.includes(p))]);
+            onClearPending?.();
+        }
+    }, [pendingFiles]);
+
+    const handleSelectFiles = async () => {
+        try {
+            const paths = mode === 'compress'
+                ? await window.api.zipSelectFiles()
+                : await window.api.zipSelectArchives();
+            if (paths?.length > 0) setFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
+        } catch (error) {
+            alert('Error selecting files: ' + error.message);
+        }
+    };
+
+    const handleRemoveFile = (index) => setFiles(files.filter((_, i) => i !== index));
+
+    const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); };
+    const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); };
+    const handleDrop = (e) => {
+        e.preventDefault(); e.stopPropagation(); setDragOver(false);
+        const droppedFiles = Array.from(e.dataTransfer.files);
+        if (droppedFiles.length > 0) {
+            const filePaths = droppedFiles.map(f => f.path);
+            setFiles(prev => [...prev, ...filePaths.filter(p => !prev.includes(p))]);
+        }
+    };
+
+    const toggleCharset = (id) => {
+        setCharset(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+    };
+
+    const getPasswordStrength = (pwd) => {
+        if (!pwd) return { level: 0, text: '', color: '' };
+        let score = 0;
+        if (pwd.length >= 8) score++;
+        if (pwd.length >= 12) score++;
+        if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
+        if (/\d/.test(pwd)) score++;
+        if (/[^a-zA-Z0-9]/.test(pwd)) score++;
+        const levels = [
+            { level: 1, text: 'Weak', color: 'bg-red-500' },
+            { level: 2, text: 'Fair', color: 'bg-orange-500' },
+            { level: 3, text: 'Good', color: 'bg-yellow-500' },
+            { level: 4, text: 'Strong', color: 'bg-emerald-500' },
+            { level: 5, text: 'Very Strong', color: 'bg-emerald-600' }
+        ];
+        return levels[Math.min(score, 4)] || levels[0];
+    };
+
+    const handleAction = () => {
+        if (files.length === 0) return;
+        if (mode === 'crack') {
+            handleCrack();
+            return;
+        }
+        setProcessing(true);
+        const jobId = Date.now().toString();
+        setProgress({ ['current-job']: { status: 'starting', percent: 0 } });
+
+        const levelMap = { fast: 1, normal: 5, maximum: 9 };
+        const options = {
+            outputName: `archive_${jobId}.${outputFormat}`,
+            level: levelMap[compressionLevel],
+            password: usePassword && password ? password : undefined,
+            splitSize: splitArchive ? parseInt(volumeSize) * 1024 * 1024 : undefined
+        };
+
+        if (mode === 'compress') {
+            window.api.zipCompress(files, options, jobId);
+        } else {
+            files.forEach(file => window.api.zipDecompress(file, { password: usePassword ? password : undefined }, jobId));
+        }
+    };
+
+    const handleCrack = () => {
+        if (files.length === 0) return;
+        if (!window.api?.zipCrackStart) return;
+
+        setProcessing(true);
+        setFoundPassword(null);
+        setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength, status: null, error: null });
+
+        const jobId = Date.now().toString();
+        setCrackJobId(jobId);
+        const archivePath = files[0];
+
+        let charsetStr = '';
+        if (charset.includes('lowercase')) charsetStr += 'abcdefghijklmnopqrstuvwxyz';
+        if (charset.includes('uppercase')) charsetStr += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        if (charset.includes('numbers')) charsetStr += '0123456789';
+        if (charset.includes('special')) charsetStr += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+
+        const options = {
+            mode: attackMode,
+            charset: charsetStr || 'abcdefghijklmnopqrstuvwxyz0123456789',
+            minLength,
+            maxLength,
+            useGpu: gpuAvailable,
+            useCpuMultiThread
+        };
+
+        window.api.zipCrackStart(archivePath, options, jobId);
+    };
+
+    const handleCancelCrack = () => {
+        if (crackJobId && window.api?.zipCrackStop) {
+            window.api.zipCrackStop(crackJobId);
+            setProcessing(false);
+            setCrackJobId(null);
+            setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength });
+        }
+    };
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !window.api) return;
+        if (!window.api.onZipCrackStarted || !window.api.onZipCrackProgress || !window.api.onZipCrackResult) return;
+
+        const handleCrackStarted = ({ numWorkers }) => {};
+        const handleCrackProgress = ({ attempts, speed, current, currentLength, method }) => {
+            setCrackStats(prev => ({
+                speed: speed || 0,
+                attempts: attempts || 0,
+                current: current || '',
+                currentLength: currentLength || prev.currentLength || 1
+            }));
+            if (method) setCrackMethod(method);
+        };
+        const handleCrackResult = ({ success, password, error, attempts }) => {
+            setProcessing(false);
+            setCrackJobId(null);
+            if (success && password) {
+                setFoundPassword(password);
+            } else if (error && error !== 'Cancelled') {
+                setCrackStats(prev => ({ ...prev, error, status: 'error' }));
+            } else if (!success && !error) {
+                setCrackStats(prev => ({
+                    ...prev,
+                    status: 'not_found',
+                    message: `Password not found after ${(attempts || prev.attempts || 0).toLocaleString()} attempts`
+                }));
+            }
+        };
+
+        window.api.onZipCrackStarted(handleCrackStarted);
+        window.api.onZipCrackProgress(handleCrackProgress);
+        window.api.onZipCrackResult(handleCrackResult);
+
+        if (window.api.onZipCrackEncryption) {
+            window.api.onZipCrackEncryption((info) => {
+                setEncryptionInfo(info);
+            });
+        }
+
+        return () => {
+            if (window.api?.zipCrackOffListeners) {
+                window.api.zipCrackOffListeners();
+            }
+        };
+    }, []);
+
+    const jobProgress = progress['current-job'];
+    const passwordStrength = getPasswordStrength(password);
+
+    const getFileIcon = (fileName) => {
+        const ext = fileName.split('.').pop().toLowerCase();
+        if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return { icon: 'folder_zip', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/30' };
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return { icon: 'image', color: 'text-green-500', bg: 'bg-green-50 dark:bg-green-900/30' };
+        if (['mp4', 'mkv', 'avi', 'mov'].includes(ext)) return { icon: 'movie', color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-900/30' };
+        if (['mp3', 'wav', 'flac'].includes(ext)) return { icon: 'music_note', color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-900/30' };
+        if (['pdf'].includes(ext)) return { icon: 'picture_as_pdf', color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-900/30' };
+        if (['doc', 'docx'].includes(ext)) return { icon: 'description', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/30' };
+        return { icon: 'draft', color: 'text-slate-400', bg: 'bg-slate-50 dark:bg-slate-800/50' };
+    };
+
+    const modes = [
+        { id: 'compress', icon: 'folder_zip', label: 'Compress' },
+        { id: 'extract', icon: 'unarchive', label: 'Extract' },
+        { id: 'crack', icon: 'key', label: 'Crack' }
+    ];
+
+    const compressionLevels = [
+        { id: 'fast', label: 'Fast', desc: 'Quick, larger size', icon: 'bolt' },
+        { id: 'normal', label: 'Normal', desc: 'Balanced', icon: 'tune' },
+        { id: 'maximum', label: 'Maximum', desc: 'Best compression', icon: 'compress' }
+    ];
+
+    const formats = [
+        { id: 'zip', label: 'ZIP', color: 'text-green-500' },
+        { id: '7z', label: '7Z', color: 'text-red-500' },
+        { id: 'tar', label: 'TAR', color: 'text-orange-500' },
+        { id: 'tar.gz', label: 'TAR.GZ', color: 'text-purple-500' }
+    ];
+
+
+    // ==================== CRACK MODE UI ====================
+    const renderCrackMode = () => {
+        // Password Found - Success State
+        if (foundPassword) {
+            return (
+                <div className="flex flex-col items-center justify-center py-16">
+                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center mb-6 shadow-2xl shadow-emerald-500/30 animate-bounce">
+                        <span className="material-symbols-outlined text-5xl text-white">lock_open</span>
+                    </div>
+                    <h2 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mb-2">Password Found!</h2>
+                    <p className="text-slate-500 dark:text-slate-400 mb-6">Successfully cracked in {crackStats.attempts?.toLocaleString() || 0} attempts</p>
+                    
+                    <div className="relative group mb-8">
+                        <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl blur opacity-25 group-hover:opacity-40 transition"></div>
+                        <div className="relative bg-white dark:bg-slate-800 px-8 py-4 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                            <p className="font-mono text-2xl font-bold text-slate-800 dark:text-white select-all">{foundPassword}</p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(foundPassword);
+                                const btn = document.getElementById('copy-btn');
+                                if (btn) { btn.textContent = 'check'; setTimeout(() => btn.textContent = 'content_copy', 1500); }
+                            }}
+                            className="absolute -right-3 -top-3 w-10 h-10 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110"
+                        >
+                            <span id="copy-btn" className="material-symbols-outlined">content_copy</span>
+                        </button>
+                    </div>
+
+                    <div className="flex gap-3">
+                        {crackMethod && (
+                            <span className="px-4 py-2 text-sm font-medium rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                {crackMethod}
+                            </span>
+                        )}
+                    </div>
+
+                    <button
+                        onClick={() => { setFoundPassword(null); setFiles([]); setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1 }); }}
+                        className="mt-8 px-6 py-2.5 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors"
+                    >
+                        Crack Another File
+                    </button>
+                </div>
+            );
+        }
+
+        // Not Found State
+        if (crackStats.status === 'not_found') {
+            return (
+                <div className="flex flex-col items-center justify-center py-16">
+                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center mb-6 shadow-2xl shadow-red-500/30">
+                        <span className="material-symbols-outlined text-5xl text-white">search_off</span>
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-700 dark:text-slate-200 mb-2">Password Not Found</h2>
+                    <p className="text-slate-500 dark:text-slate-400 mb-6 text-center max-w-md">
+                        Tried {crackStats.attempts?.toLocaleString() || 0} combinations without success
+                    </p>
+                    
+                    <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-5 max-w-md mb-8">
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Try these options:</p>
+                        <ul className="text-sm text-slate-500 dark:text-slate-400 space-y-2">
+                            <li className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-lg text-blue-500">tune</span>
+                                Use Custom Brute Force with more character sets
+                            </li>
+                            <li className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-lg text-blue-500">straighten</span>
+                                Increase maximum password length
+                            </li>
+                        </ul>
+                    </div>
+
+                    <button
+                        onClick={() => { setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1 }); }}
+                        className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-all"
+                    >
+                        Try Again
+                    </button>
+                </div>
+            );
+        }
+
+        // Error State
+        if (crackStats.status === 'error') {
+            return (
+                <div className="flex flex-col items-center justify-center py-16">
+                    <div className="w-20 h-20 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-6">
+                        <span className="material-symbols-outlined text-4xl text-red-500">error</span>
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-700 dark:text-slate-200 mb-2">Error Occurred</h2>
+                    <p className="text-slate-500 dark:text-slate-400 mb-6 text-center max-w-md">{crackStats.error}</p>
+                    <button
+                        onClick={() => { setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1 }); }}
+                        className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-all"
+                    >
+                        Try Again
+                    </button>
+                </div>
+            );
+        }
+
+        // Processing State
+        if (processing) {
+            return (
+                <div className="py-8">
+                    {/* File Info */}
+                    <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl mb-6">
+                        <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                            <span className="material-symbols-outlined text-2xl text-blue-500">folder_zip</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{files[0]?.split(/[\\/]/).pop()}</p>
+                            <div className="flex gap-2 mt-1">
+                                {encryptionInfo?.format && (
+                                    <span className="text-xs px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400">
+                                        {encryptionInfo.format.toUpperCase()}
+                                    </span>
+                                )}
+                                {encryptionInfo?.method && (
+                                    <span className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+                                        {encryptionInfo.method}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Progress Card */}
+                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/50 rounded-2xl p-6 border border-blue-100 dark:border-slate-700">
+                        {/* Current Password */}
+                        <div className="text-center mb-6">
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wider">Currently Testing</p>
+                            <div className="inline-block bg-white dark:bg-slate-900 px-6 py-3 rounded-xl shadow-sm">
+                                <p className="font-mono text-xl text-blue-600 dark:text-blue-400 min-w-[100px]">
+                                    {crackStats.current || '...'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-3 gap-4 mb-6">
+                            <div className="text-center p-3 bg-white/60 dark:bg-slate-900/40 rounded-xl">
+                                <p className="text-2xl font-bold text-slate-800 dark:text-white">
+                                    {crackStats.speed >= 1000000 ? `${(crackStats.speed / 1000000).toFixed(1)}M` :
+                                        crackStats.speed >= 1000 ? `${(crackStats.speed / 1000).toFixed(1)}K` :
+                                            crackStats.speed || 0}
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">per second</p>
+                            </div>
+                            <div className="text-center p-3 bg-white/60 dark:bg-slate-900/40 rounded-xl">
+                                <p className="text-2xl font-bold text-slate-800 dark:text-white">
+                                    {(crackStats.attempts || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">attempts</p>
+                            </div>
+                            <div className="text-center p-3 bg-white/60 dark:bg-slate-900/40 rounded-xl">
+                                <p className="text-2xl font-bold text-slate-800 dark:text-white">
+                                    {crackMethod?.includes('GPU') ? 'GPU' : 'CPU'}
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">engine</p>
+                            </div>
+                        </div>
+
+                        {/* Method Badge */}
+                        {crackMethod && (
+                            <div className="flex justify-center mb-4">
+                                <span className={`px-4 py-1.5 text-sm font-medium rounded-full ${
+                                    crackMethod.includes('GPU') ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                    crackMethod.includes('Dictionary') ? 'bg-[#E3F2FD] text-[#0d6efd] dark:bg-blue-900/30 dark:text-blue-400' :
+                                    'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                                }`}>
+                                    {crackMethod}
+                                </span>
+                            </div>
+                        )}
+
+                        {/* Progress Bar */}
+                        <div className="h-2 bg-blue-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 animate-pulse" style={{ width: '100%' }}></div>
+                        </div>
+                    </div>
+
+                    {/* Cancel Button */}
+                    <div className="flex justify-center mt-6">
+                        <button
+                            onClick={handleCancelCrack}
+                            className="px-8 py-3 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-all flex items-center gap-2"
+                        >
+                            <span className="material-symbols-outlined">stop</span>
+                            Stop Cracking
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // Default: Setup State (file selected, ready to configure)
+        if (files.length > 0) {
+            return (
+                <div className="space-y-6">
+                    {/* Selected File */}
+                    <div className="flex items-center gap-4 p-4 bg-white dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-lg">
+                            <span className="material-symbols-outlined text-2xl text-white">lock</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-base font-medium text-slate-800 dark:text-slate-200 truncate">{files[0]?.split(/[\\/]/).pop()}</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">Ready to crack</p>
+                        </div>
+                        <button
+                            onClick={() => setFiles([])}
+                            className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                        >
+                            <span className="material-symbols-outlined">close</span>
+                        </button>
+                    </div>
+
+                    {/* Attack Mode Selection */}
+                    <div>
+                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Attack Mode</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            <button
+                                onClick={() => setAttackMode('dictionary')}
+                                className={`p-5 rounded-xl border-2 text-left transition-all ${
+                                    attackMode === 'dictionary'
+                                        ? 'border-[#137fec] bg-[#E3F2FD] dark:bg-blue-900/20'
+                                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                                }`}
+                            >
+                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#137fec] to-[#0d6efd] flex items-center justify-center mb-3">
+                                    <span className="material-symbols-outlined text-white">auto_awesome</span>
+                                </div>
+                                <p className="font-semibold text-slate-800 dark:text-white">Smart Dictionary</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">14M passwords + rules</p>
+                                {attackMode === 'dictionary' && (
+                                    <span className="material-symbols-outlined text-[#137fec] absolute top-3 right-3">check_circle</span>
+                                )}
+                            </button>
+                            <button
+                                onClick={() => setAttackMode('bruteforce')}
+                                className={`p-5 rounded-xl border-2 text-left transition-all ${
+                                    attackMode === 'bruteforce'
+                                        ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20'
+                                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                                }`}
+                            >
+                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center mb-3">
+                                    <span className="material-symbols-outlined text-white">tune</span>
+                                </div>
+                                <p className="font-semibold text-slate-800 dark:text-white">Custom Brute Force</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Your charset & length</p>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Brute Force Options */}
+                    {attackMode === 'bruteforce' && (
+                        <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-xl space-y-5">
+                            {/* Character Set */}
+                            <div>
+                                <h4 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-3">Character Set</h4>
+                                <div className="flex flex-wrap gap-2">
+                                    {[
+                                        { id: 'lowercase', label: 'a-z' },
+                                        { id: 'uppercase', label: 'A-Z' },
+                                        { id: 'numbers', label: '0-9' },
+                                        { id: 'special', label: '!@#$' }
+                                    ].map(set => (
+                                        <button
+                                            key={set.id}
+                                            onClick={() => toggleCharset(set.id)}
+                                            className={`px-4 py-2 rounded-lg border-2 font-mono text-sm font-bold transition-all ${
+                                                charset.includes(set.id)
+                                                    ? 'border-cyan-500 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300'
+                                                    : 'border-slate-200 dark:border-slate-600 text-slate-500'
+                                            }`}
+                                        >
+                                            {set.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Length Range */}
+                            <div>
+                                <h4 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-3">Password Length</h4>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex-1">
+                                        <label className="text-xs text-slate-500 block mb-1">Min</label>
+                                        <input
+                                            type="number"
+                                            value={minLength}
+                                            onChange={e => setMinLength(Math.max(1, parseInt(e.target.value) || 1))}
+                                            className="w-full h-10 px-3 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-center font-semibold"
+                                            min="1" max="16"
+                                        />
+                                    </div>
+                                    <span className="text-slate-400 mt-5">—</span>
+                                    <div className="flex-1">
+                                        <label className="text-xs text-slate-500 block mb-1">Max</label>
+                                        <input
+                                            type="number"
+                                            value={maxLength}
+                                            onChange={e => setMaxLength(Math.min(16, parseInt(e.target.value) || 8))}
+                                            className="w-full h-10 px-3 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-center font-semibold"
+                                            min="1" max="16"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* GPU Info */}
+                    <div className="flex items-center gap-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-900/30">
+                        <span className="material-symbols-outlined text-emerald-500">memory</span>
+                        <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                            {gpuAvailable ? 'GPU acceleration enabled • Auto CPU fallback' : 'CPU mode • Multi-threaded'}
+                        </p>
+                    </div>
+
+                    {/* Start Button */}
+                    <button
+                        onClick={handleAction}
+                        className="w-full py-4 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/25"
+                    >
+                        <span className="material-symbols-outlined">key</span>
+                        Start Cracking
+                    </button>
+                </div>
+            );
+        }
+
+        // Empty State: No file selected
+        return (
+            <div className="space-y-6">
+                <div
+                    onClick={handleSelectFiles}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`rounded-2xl border-2 border-dashed p-16 cursor-pointer transition-all text-center ${
+                        dragOver
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                            : 'border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                    }`}
+                >
+                    <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-xl shadow-blue-500/25">
+                        <span className="material-symbols-outlined text-4xl text-white">lock</span>
+                    </div>
+                    <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200 mb-2">
+                        Drop encrypted archive here
+                    </h3>
+                    <p className="text-slate-500 dark:text-slate-400 mb-6">or click to browse</p>
+                    <div className="flex gap-3 justify-center">
+                        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">ZIP</span>
+                        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">RAR</span>
+                        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">7Z</span>
+                    </div>
+                </div>
+
+                {/* Features */}
+                <div className="grid grid-cols-3 gap-4">
+                    {[
+                        { icon: 'memory', title: 'GPU Accelerated', desc: 'NVIDIA CUDA support' },
+                        { icon: 'menu_book', title: '14M Dictionary', desc: 'Common passwords' },
+                        { icon: 'auto_awesome', title: 'Smart Rules', desc: 'Pattern detection' }
+                    ].map((item, i) => (
+                        <div key={i} className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                            <span className="material-symbols-outlined text-blue-500 text-xl mb-2 block">{item.icon}</span>
+                            <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200">{item.title}</h4>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+
+    return (
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#fafbfc] dark:bg-[#0d1117]">
+            {/* Header */}
+            <div className="px-8 py-5 border-b border-slate-200/60 dark:border-slate-800/60 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-xl font-semibold text-slate-800 dark:text-white tracking-tight">File Compressor</h1>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                            {mode === 'crack' ? 'Crack archive passwords' : files.length === 0 ? 'Compress or extract archives' : `${files.length} file${files.length > 1 ? 's' : ''} selected`}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        {/* Mode Selector */}
+                        <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                            {modes.map(m => (
+                                <button
+                                    key={m.id}
+                                    onClick={() => { setMode(m.id); setFiles([]); setProgress({}); setFoundPassword(null); setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1 }); }}
+                                    disabled={processing}
+                                    className={`px-3 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-1.5 ${
+                                        mode === m.id
+                                            ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                    }`}
+                                >
+                                    <span className="material-symbols-outlined text-lg">{m.icon}</span>
+                                    {m.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="flex-1 overflow-auto">
+                <div className="max-w-3xl mx-auto px-8 py-8">
+                    {/* Crack Mode */}
+                    {mode === 'crack' && renderCrackMode()}
+
+                    {/* Compress/Extract Mode */}
+                    {mode !== 'crack' && (
+                        <>
+                            {files.length === 0 ? (
+                                /* Empty State - Drop Zone */
+                                <div className="space-y-6">
+                                    <div
+                                        onClick={handleSelectFiles}
+                                        onDragOver={handleDragOver}
+                                        onDragLeave={handleDragLeave}
+                                        onDrop={handleDrop}
+                                        className={`rounded-2xl border-2 border-dashed p-12 cursor-pointer transition-all text-center ${
+                                            dragOver
+                                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                                                : 'border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                        }`}
+                                    >
+                                        <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-slate-400 text-3xl">
+                                                {mode === 'compress' ? 'folder_zip' : 'unarchive'}
+                                            </span>
+                                        </div>
+                                        <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">
+                                            {mode === 'compress' ? 'Drop files to compress' : 'Drop archives to extract'}
+                                        </h3>
+                                        <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">or click to browse</p>
+                                        <div className="flex gap-3 justify-center flex-wrap">
+                                            {mode === 'compress' ? (
+                                                <>
+                                                    <span className="text-blue-500 text-xs font-semibold">Any Files</span>
+                                                    <span className="text-orange-500 text-xs font-semibold">Folders</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="text-green-500 text-xs font-semibold">ZIP</span>
+                                                    <span className="text-purple-500 text-xs font-semibold">RAR</span>
+                                                    <span className="text-red-500 text-xs font-semibold">7Z</span>
+                                                    <span className="text-orange-500 text-xs font-semibold">TAR</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Features */}
+                                    <div className="grid grid-cols-3 gap-4">
+                                        {[
+                                            { icon: 'bolt', title: 'Fast Processing', desc: 'Optimized algorithms' },
+                                            { icon: 'folder_zip', title: 'Multiple Formats', desc: 'ZIP, RAR, 7Z, TAR' },
+                                            { icon: 'lock', title: 'AES-256 Encryption', desc: 'Password protection' }
+                                        ].map((item, i) => (
+                                            <div key={i} className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                                <span className="material-symbols-outlined text-blue-500 text-xl mb-2 block">{item.icon}</span>
+                                                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">{item.title}</h4>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                /* File List & Options */
+                                <div className="space-y-6">
+                                    {/* Files */}
+                                    <div className="space-y-2">
+                                        {files.map((file, index) => {
+                                            const fileName = file.split(/[\\/]/).pop();
+                                            const fileStyle = getFileIcon(fileName);
+                                            return (
+                                                <div key={index} className="group p-4 rounded-xl border transition-all bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${fileStyle.bg}`}>
+                                                            <span className={`material-symbols-outlined text-2xl ${fileStyle.color}`}>{fileStyle.icon}</span>
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{fileName}</p>
+                                                            <p className="text-xs text-slate-400 mt-0.5">Ready</p>
+                                                        </div>
+                                                        {!processing && (
+                                                            <button
+                                                                onClick={() => handleRemoveFile(index)}
+                                                                className="opacity-0 group-hover:opacity-100 p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                                                            >
+                                                                <span className="material-symbols-outlined">close</span>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Add More */}
+                                    {!processing && (
+                                        <button
+                                            onClick={handleSelectFiles}
+                                            className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 hover:text-blue-500 hover:border-blue-400 transition-all text-sm font-medium flex items-center justify-center gap-2"
+                                        >
+                                            <span className="material-symbols-outlined text-lg">add</span>
+                                            Add more files
+                                        </button>
+                                    )}
+
+                                    {/* Compress Options */}
+                                    {mode === 'compress' && !processing && (
+                                        <div className="space-y-4">
+                                            {/* Compression Level */}
+                                            <div className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Compression Level</h4>
+                                                <div className="grid grid-cols-3 gap-3">
+                                                    {compressionLevels.map(level => (
+                                                        <button
+                                                            key={level.id}
+                                                            onClick={() => setCompressionLevel(level.id)}
+                                                            className={`p-3 rounded-xl border text-left transition-all ${
+                                                                compressionLevel === level.id
+                                                                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                                                                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                                                            }`}
+                                                        >
+                                                            <span className={`material-symbols-outlined text-lg mb-1 block ${compressionLevel === level.id ? 'text-blue-500' : 'text-slate-400'}`}>
+                                                                {level.icon}
+                                                            </span>
+                                                            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{level.label}</p>
+                                                            <p className="text-xs text-slate-500">{level.desc}</p>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Advanced Options Toggle */}
+                                            <button
+                                                onClick={() => setShowAdvanced(!showAdvanced)}
+                                                className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+                                            >
+                                                <span className={`material-symbols-outlined text-lg transition-transform ${showAdvanced ? 'rotate-180' : ''}`}>expand_more</span>
+                                                Advanced Options
+                                            </button>
+
+                                            {showAdvanced && (
+                                                <div className="space-y-4 pl-4 border-l-2 border-slate-200 dark:border-slate-700">
+                                                    {/* Output Format */}
+                                                    <div>
+                                                        <h4 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">Output Format</h4>
+                                                        <div className="flex gap-2">
+                                                            {formats.map(fmt => (
+                                                                <button
+                                                                    key={fmt.id}
+                                                                    onClick={() => setOutputFormat(fmt.id)}
+                                                                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                                                                        outputFormat === fmt.id
+                                                                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600'
+                                                                            : 'border-slate-200 dark:border-slate-700 ' + fmt.color
+                                                                    }`}
+                                                                >
+                                                                    {fmt.label}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Password Protection */}
+                                                    <div>
+                                                        <label className="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={usePassword}
+                                                                onChange={e => setUsePassword(e.target.checked)}
+                                                                className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                                                            />
+                                                            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Password Protection</span>
+                                                        </label>
+                                                        {usePassword && (
+                                                            <div className="mt-3 space-y-2">
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type={showPassword ? 'text' : 'password'}
+                                                                        value={password}
+                                                                        onChange={e => setPassword(e.target.value)}
+                                                                        placeholder="Enter password"
+                                                                        className="w-full h-10 px-3 pr-10 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm"
+                                                                    />
+                                                                    <button
+                                                                        onClick={() => setShowPassword(!showPassword)}
+                                                                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                                                                    >
+                                                                        <span className="material-symbols-outlined text-xl">{showPassword ? 'visibility_off' : 'visibility'}</span>
+                                                                    </button>
+                                                                </div>
+                                                                <input
+                                                                    type="password"
+                                                                    value={confirmPassword}
+                                                                    onChange={e => setConfirmPassword(e.target.value)}
+                                                                    placeholder="Confirm password"
+                                                                    className="w-full h-10 px-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm"
+                                                                />
+                                                                {password && (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                                                            <div className={`h-full ${passwordStrength.color} transition-all`} style={{ width: `${passwordStrength.level * 20}%` }}></div>
+                                                                        </div>
+                                                                        <span className="text-xs text-slate-500">{passwordStrength.text}</span>
+                                                                    </div>
+                                                                )}
+                                                                {password && confirmPassword && password !== confirmPassword && (
+                                                                    <p className="text-xs text-red-500">Passwords do not match</p>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Split Archive */}
+                                                    <div>
+                                                        <label className="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={splitArchive}
+                                                                onChange={e => setSplitArchive(e.target.checked)}
+                                                                className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                                                            />
+                                                            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Split into volumes</span>
+                                                        </label>
+                                                        {splitArchive && (
+                                                            <div className="mt-3 flex gap-2 flex-wrap">
+                                                                {['100', '500', '1024', '2048'].map(size => (
+                                                                    <button
+                                                                        key={size}
+                                                                        onClick={() => setVolumeSize(size)}
+                                                                        className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                                                                            volumeSize === size
+                                                                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600'
+                                                                                : 'border-slate-200 dark:border-slate-700 text-slate-600'
+                                                                        }`}
+                                                                    >
+                                                                        {size >= 1024 ? `${size / 1024}GB` : `${size}MB`}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Extract Options */}
+                                    {mode === 'extract' && !processing && (
+                                        <div className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={usePassword}
+                                                    onChange={e => setUsePassword(e.target.checked)}
+                                                    className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Archive has password</span>
+                                            </label>
+                                            {usePassword && (
+                                                <div className="mt-3">
+                                                    <input
+                                                        type="password"
+                                                        value={password}
+                                                        onChange={e => setPassword(e.target.value)}
+                                                        placeholder="Enter archive password"
+                                                        className="w-full h-10 px-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Progress */}
+                                    {jobProgress && (
+                                        <div className={`p-4 rounded-xl border transition-all ${
+                                            jobProgress.status === 'completed'
+                                                ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+                                                : jobProgress.status === 'error'
+                                                    ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                                                    : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                                        }`}>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className={`text-sm font-medium ${
+                                                    jobProgress.status === 'completed'
+                                                        ? 'text-emerald-700 dark:text-emerald-400'
+                                                        : jobProgress.status === 'error'
+                                                            ? 'text-red-700 dark:text-red-400'
+                                                            : 'text-blue-700 dark:text-blue-400'
+                                                }`}>
+                                                    {jobProgress.status === 'completed' ? '✓ Completed!' :
+                                                        jobProgress.status === 'error' ? '✗ Failed' :
+                                                            mode === 'compress' ? 'Compressing...' : 'Extracting...'}
+                                                </span>
+                                                {jobProgress.status !== 'completed' && jobProgress.status !== 'error' && (
+                                                    <span className="text-xs font-semibold text-blue-600">{jobProgress.percent}%</span>
+                                                )}
+                                            </div>
+                                            {jobProgress.status !== 'completed' && jobProgress.status !== 'error' && (
+                                                <div className="h-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${jobProgress.percent}%` }}></div>
+                                                </div>
+                                            )}
+                                            {jobProgress.error && <p className="text-xs text-red-600 mt-2">{jobProgress.error}</p>}
+                                            {jobProgress.outputPath && <p className="text-xs text-slate-500 mt-2 truncate">Output: {jobProgress.outputPath}</p>}
+                                        </div>
+                                    )}
+
+                                    {/* Action Button */}
+                                    <div className="flex justify-end">
+                                        <button
+                                            onClick={handleAction}
+                                            disabled={processing || files.length === 0 || (mode === 'compress' && usePassword && password !== confirmPassword)}
+                                            className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-medium rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                        >
+                                            {processing ? (
+                                                <>
+                                                    <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                                                    {mode === 'compress' ? 'Compressing...' : 'Extracting...'}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="material-symbols-outlined">{mode === 'compress' ? 'folder_zip' : 'unarchive'}</span>
+                                                    {mode === 'compress' ? 'Compress Now' : 'Extract Now'}
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default FileCompressor;

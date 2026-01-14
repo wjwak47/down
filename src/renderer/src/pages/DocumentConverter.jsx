@@ -20,16 +20,64 @@ const DocumentConverter = ({ pendingFiles = [], onClearPending }) => {
         return () => {};
     }, []);
 
+    // Auto-detect format from file extension
+    const detectFormatFromFile = (filePath) => {
+        const ext = filePath.split('.').pop().toLowerCase();
+        if (['doc', 'docx'].includes(ext)) return 'docx';
+        if (['xls', 'xlsx'].includes(ext)) return 'xlsx';
+        if (['pdf'].includes(ext)) return 'pdf';
+        if (['htm', 'html'].includes(ext)) return 'html';
+        return null;
+    };
+
     useEffect(() => {
         if (pendingFiles?.length > 0) {
-            setFiles(prev => [...prev, ...pendingFiles.filter(p => !prev.includes(p))]);
+            const newFiles = pendingFiles.filter(p => !files.includes(p));
+            if (newFiles.length > 0) {
+                setFiles(prev => [...prev, ...newFiles]);
+                // Auto-select format based on first new file
+                const detectedFormat = detectFormatFromFile(newFiles[0]);
+                if (detectedFormat) {
+                    setTargetFormat(detectedFormat);
+                }
+            }
             onClearPending?.();
         }
     }, [pendingFiles]);
 
     const handleSelectFiles = async () => {
         const paths = await window.api.docSelectFiles();
-        if (paths?.length > 0) setFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
+        if (paths?.length > 0) {
+            const newFiles = paths.filter(p => !files.includes(p));
+            if (newFiles.length > 0) {
+                setFiles(prev => [...prev, ...newFiles]);
+                // Auto-select format based on first new file (only if no files existed before)
+                if (files.length === 0) {
+                    const detectedFormat = detectFormatFromFile(newFiles[0]);
+                    if (detectedFormat) {
+                        setTargetFormat(detectedFormat);
+                    }
+                }
+            }
+        }
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOver(false);
+        const paths = Array.from(e.dataTransfer.files).map(f => f.path);
+        if (paths.length > 0) {
+            const newFiles = paths.filter(p => !files.includes(p));
+            if (newFiles.length > 0) {
+                setFiles(prev => [...prev, ...newFiles]);
+                // Auto-select format based on first new file
+                const detectedFormat = detectFormatFromFile(newFiles[0]);
+                if (detectedFormat) {
+                    setTargetFormat(detectedFormat);
+                }
+            }
+        }
     };
 
     const handleConvert = () => {
@@ -93,7 +141,7 @@ const DocumentConverter = ({ pendingFiles = [], onClearPending }) => {
                                 onClick={handleSelectFiles}
                                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                                 onDragLeave={() => setDragOver(false)}
-                                onDrop={e => { e.preventDefault(); setDragOver(false); }}
+                                onDrop={handleDrop}
                                 className={`rounded-2xl border-2 border-dashed p-16 cursor-pointer transition-all text-center
                                     ${dragOver ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-slate-200 dark:border-slate-700 hover:border-primary/50 dark:hover:border-primary/50 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
                             >

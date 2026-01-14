@@ -22,22 +22,6 @@ export const TopNavBar = ({ currentPage, onNavigate }) => {
                     Workspace / <span className="text-[#111418] dark:text-white font-semibold">{getBreadcrumb()}</span>
                 </p>
             </div>
-            <div className="flex items-center gap-6">
-                <div className="relative group hidden md:block">
-                    <label className="flex items-center bg-[#f0f2f4] dark:bg-[#1e2d3d] rounded-lg px-3 py-1.5 w-64 border border-transparent focus-within:border-primary/50 transition-all">
-                        <span className="material-symbols-outlined text-slate-blue text-sm">search</span>
-                        <input
-                            className="bg-transparent border-none focus:ring-0 text-sm w-full placeholder:text-slate-400 text-[#111418] dark:text-white ml-2"
-                            placeholder="Search workflow..."
-                            type="text"
-                        />
-                    </label>
-                </div>
-                <div className="flex items-center gap-4">
-                    <span className="material-symbols-outlined text-slate-blue dark:text-slate-400 cursor-pointer hover:text-primary transition-colors">notifications</span>
-                    <div className="size-8 rounded-full bg-slate-200 border-2 border-primary/20 bg-cover bg-center" style={{ backgroundImage: `url('https://picsum.photos/seed/user123/64/64')` }}></div>
-                </div>
-            </div>
         </header>
     );
 };

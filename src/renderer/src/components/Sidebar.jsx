@@ -1,12 +1,32 @@
-import React from 'react';
+import { useGlobalTasks } from '../contexts/GlobalTaskContext';
+
+// 任务徽章组件
+const TaskBadge = ({ count, type }) => {
+    if (count === 0) return null;
+    
+    const colors = {
+        download: 'bg-blue-500',
+        crack: 'bg-violet-500',
+        default: 'bg-primary'
+    };
+    
+    return (
+        <span className={`ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full ${colors[type] || colors.default} text-white text-[10px] font-bold flex items-center justify-center`}>
+            {count > 99 ? '99+' : count}
+        </span>
+    );
+};
 
 export const Sidebar = ({ currentPage, onNavigate }) => {
+    const { derivedState } = useGlobalTasks();
+    const { activeDownloadCount, activeCrackJobCount } = derivedState;
+    
     const navSections = [
         {
             title: 'Main',
             items: [
                 { label: 'Dashboard', icon: 'grid_view', page: 'dashboard' },
-                { label: 'Download', icon: 'download', page: 'video-downloader' },
+                { label: 'Download', icon: 'download', page: 'video-downloader', badgeCount: activeDownloadCount, badgeType: 'download' },
             ]
         },
         {
@@ -21,7 +41,7 @@ export const Sidebar = ({ currentPage, onNavigate }) => {
             title: 'Files',
             items: [
                 { label: 'Document', icon: 'article', page: 'document-converter' },
-                { label: 'Compress', icon: 'folder_zip', page: 'file-compressor' },
+                { label: 'Compress', icon: 'folder_zip', page: 'file-compressor', badgeCount: activeCrackJobCount, badgeType: 'crack' },
             ]
         },
         {
@@ -65,6 +85,9 @@ export const Sidebar = ({ currentPage, onNavigate }) => {
                                             {item.icon}
                                         </span>
                                         <p className="text-sm font-medium">{item.label}</p>
+                                        {item.badgeCount !== undefined && (
+                                            <TaskBadge count={item.badgeCount} type={item.badgeType} />
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -89,19 +112,9 @@ export const Sidebar = ({ currentPage, onNavigate }) => {
                 </nav>
             </div>
 
-            {/* Bottom Section - Support + User */}
+            {/* Bottom Section - Settings only */}
             <div className="flex flex-col gap-4 mt-4">
-                <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-blue dark:text-slate-400 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer">
-                    <span className="material-symbols-outlined text-slate-blue dark:text-slate-400">help_outline</span>
-                    <p className="text-sm font-medium">Support</p>
-                </div>
-                <div className="flex items-center gap-3 px-2 py-2 border-t border-[#e5eaf2] dark:border-[#1e2d3d] pt-4">
-                    <div className="size-8 rounded-full bg-center bg-no-repeat bg-cover bg-slate-200" style={{ backgroundImage: `url('https://picsum.photos/seed/alex/64/64')` }}></div>
-                    <div className="flex flex-col">
-                        <p className="text-[#111418] dark:text-white text-xs font-semibold">Alex Sterling</p>
-                        <p className="text-slate-blue dark:text-slate-400 text-[10px]">Pro Member</p>
-                    </div>
-                </div>
+                {/* Settings moved to bottom for cleaner look */}
             </div>
         </aside>
     );

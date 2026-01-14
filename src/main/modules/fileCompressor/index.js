@@ -20,7 +20,7 @@ const pathTo7zip = sevenBin.path7za;
 const crackSessions = new Map();
 const NUM_WORKERS = Math.max(1, os.cpus().length - 1);
 
-// ============ ¡¤????????? ============
+// ============ ï¿½ï¿½????????? ============
 function getHashcatPath() {
     return !app.isPackaged 
         ? path.join(process.cwd(), 'resources', 'hashcat', 'hashcat-6.2.6', 'hashcat.exe')
@@ -85,7 +85,7 @@ async function detectEncryption(archivePath) {
             const methodMatch = output.match(/Method\s*=\s*(.+)/i);
             const encryptedMatch = output.match(/Encrypted\s*=\s*\+/i);
             let method = methodMatch ? methodMatch[1].trim() : '';
-            // ¼ì²â¼ÓÃÜ£ºÍ¨¹ý Encrypted = + ±ê¼Ç£¬»òÕßÍ¨¹ý´íÎóÐÅÏ¢ "Cannot open encrypted archive"
+            // ï¿½ï¿½ï¿½ï¿½ï¿½Ü£ï¿½Í¨ï¿½ï¿½ Encrypted = + ï¿½ï¿½Ç£ï¿½ï¿½ï¿½ï¿½ï¿½Í¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½?"Cannot open encrypted archive"
             const hasEncryptedError = output.toLowerCase().includes('cannot open encrypted archive') || output.toLowerCase().includes('headers error');
             const isEncrypted = !!encryptedMatch || method.toLowerCase().includes('aes') || method.toLowerCase().includes('zipcrypto') || hasEncryptedError;
             
@@ -123,10 +123,10 @@ async function detectEncryption(archivePath) {
                 }
             }
             
-            // 7z ¼ÓÃÜ¼ì²â
+            // 7z ï¿½ï¿½ï¿½Ü¼ï¿½ï¿½?
             let is7zAES = false;
             if (is7z) {
-                // 7z ÎÄ¼þÈç¹ûÓÐ¼ÓÃÜ´íÎó»òÕß¼ì²âµ½¼ÓÃÜ£¬¾ÍÈÏÎªÊÇ AES ¼ÓÃÜ
+                // 7z ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½Ð¼ï¿½ï¿½Ü´ï¿½ï¿½ï¿½ï¿½ï¿½ß¼ï¿½âµ½ï¿½ï¿½ï¿½Ü£ï¿½ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½?AES ï¿½ï¿½ï¿½ï¿½
                 is7zAES = method.toLowerCase().includes('7zaes') || method.toLowerCase().includes('aes') || isEncrypted || hasEncryptedError;
                 if (is7zAES) method = '7z AES-256';
                 isAES = is7zAES;
@@ -142,7 +142,7 @@ async function detectEncryption(archivePath) {
             
             const format = isZip ? 'zip' : (isRar ? 'rar' : (is7z ? '7z' : 'unknown'));
             
-            // ¼ì²é 7z ÎÄ¼þ´óÐ¡ - hashcat ÏÞÖÆÎª 8MB
+            // ï¿½ï¿½ï¿½?7z ï¿½Ä¼ï¿½ï¿½ï¿½Ð¡ - hashcat ï¿½ï¿½ï¿½ï¿½Îª 8MB
             let fileTooLarge = false;
             if (is7z) {
                 try {
@@ -155,7 +155,7 @@ async function detectEncryption(archivePath) {
                 } catch (e) {}
             }
             
-            // ÏêÏ¸µ÷ÊÔÈÕÖ¾
+            // ï¿½ï¿½Ï¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¾
             const hashcatAvail = isHashcatAvailable();
             const johnToolAvail = isJohnToolAvailable(format);
             console.log('[detectEncryption] Hashcat check:', { hashcatAvail, hashcatMode, johnToolAvail, format, fileTooLarge, isEncrypted });
@@ -283,7 +283,7 @@ async function crackWithCPU(archivePath, options, event, id, session, startTime)
 async function crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime) {
     const { mode, charset, minLength, maxLength, dictionaryPath } = options;
     
-    // Worker ???¡¤?? - ????????? out/main?????????? resources
+    // Worker ???ï¿½ï¿½?? - ????????? out/main?????????? resources
     const workerPath = !app.isPackaged
         ? path.join(process.cwd(), 'out', 'main', 'crackWorker.js')
         : path.join(process.resourcesPath, 'app.asar.unpacked', 'out', 'main', 'crackWorker.js');
@@ -381,7 +381,7 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
             if (dictionaryPath && fs.existsSync(dictionaryPath)) {
                 allWords = fs.readFileSync(dictionaryPath, 'utf-8').split('\n').filter(l => l.trim()).map(l => l.trim());
             }
-            // ?? SMART_DICTIONARY ????????—¨?????????????????????
+            // ?? SMART_DICTIONARY ????????ï¿½ï¿½?????????????????????
             allWords = [...SMART_DICTIONARY, ...allWords.filter(w => !SMART_DICTIONARY.includes(w))];
             
             console.log('[Crack] Dictionary mode with', allWords.length, 'words');
@@ -520,25 +520,420 @@ async function extractHash(archivePath, encryption) {
         throw err;
     }
 }
-// ============ Hashcat GPU ??? (???????) ============
-async function crackWithHashcat(archivePath, options, event, id, session, startTime, encryption = null) {
-    const { mode, charset, minLength, maxLength, dictionaryPath } = options;
+// ============ GPU ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ============
+const GPU_ATTACK_PHASES = {
+    1: { name: 'Dictionary', method: 'Hashcat GPU Dictionary', description: 'Built-in Dictionary' },
+    2: { name: 'Rule', method: 'Hashcat GPU Rule Attack', description: 'Rule Transform' },
+    3: { name: 'Mask', method: 'Hashcat GPU Smart Mask', description: 'Smart Mask' },
+    4: { name: 'Hybrid', method: 'Hashcat GPU Hybrid', description: 'Hybrid Attack' },
+    5: { name: 'Keyboard', method: 'Hashcat GPU Keyboard', description: 'Keyboard Patterns' },
+    6: { name: 'Bruteforce', method: 'Hashcat GPU Bruteforce', description: 'Short Bruteforce' },
+    7: { name: 'CPU', method: 'CPU Smart Dictionary', description: 'CPU Smart Dict' }
+};
+
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä£Ê½ - ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+const SMART_MASKS = [
+    { mask: '?d?d?d?d?d?d', desc: '6-digit PIN' },
+    { mask: '?l?l?l?l?l?l', desc: '6 lowercase' },
+    { mask: '?l?l?l?l?l?l?d?d', desc: '6lower+2digit' },
+    { mask: '?u?l?l?l?l?l?d?d', desc: 'Cap+5lower+2digit' },
+    { mask: '?l?l?l?l?l?l?d?d?d?d', desc: '6lower+year' },
+    { mask: '?u?l?l?l?l?l?d?d?d?d', desc: 'Cap+5lower+year' },
+    { mask: '?u?l?l?l?l?l?d?d?d?d?s', desc: 'Cap+5lower+year+sym' },
+    { mask: '?d?d?d?d?d?d?d?d', desc: '8-digit' },
+    { mask: '?l?l?l?l?l?l?l?l', desc: '8 lowercase' },
+    { mask: '?u?l?l?l?l?l?l?d?d', desc: 'Cap+6lower+2digit' },
+    { mask: '?u?l?l?l?l?l?l?d?d?d?d', desc: 'Cap+6lower+year' },
+    { mask: '?l?l?l?l?d?d?d?d', desc: '4lower+4digit' },
+    { mask: '?u?l?l?l?l?l?d?d?d?s', desc: 'Cap+5lower+3digit+sym' },
+    { mask: '?l?l?l?l?l?l?l?l?d?d', desc: '8lower+2digit' },
+    { mask: '?u?l?l?l?l?l?l?l?d?d?d?d', desc: 'Cap+7lower+year' }
+];
+
+// ï¿½ï¿½Ï¹ï¿½ï¿½ï¿½ï¿½ï¿½×º
+const HYBRID_SUFFIXES = ['?d?d?d?d', '?d?d?d?d?s', '?d?d?d', '?d?d?d?s', '?d?d?s', '?s'];
+// ï¿½ï¿½ï¿½ï¿½Ä£Ê½ï¿½ï¿½ï¿½ï¿½ - ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î»
+const KEYBOARD_PATTERNS = [
+    'qwerty', 'qwerty123', 'qwertyuiop', 'qwer1234',
+    'asdfgh', 'asdfghjk', 'asdf1234',
+    'zxcvbn', 'zxcvbnm',
+    '1qaz2wsx', 'qazwsx', '1q2w3e4r', 'q1w2e3r4',
+    '123qwe', 'qwe123', 'asd123',
+    '147258369', '159357', '741852963',
+    'password', 'password1', 'password123', 'passw0rd',
+    'admin', 'admin123', 'root', 'root123',
+    'letmein', 'welcome', 'monkey', 'dragon',
+    'master', 'login', 'abc123', 'iloveyou',
+    '111111', '123123', '666666', '888888',
+    'woaini', 'woaini520', '5201314', 'aini520'
+];
+
+// ============ Í¨ï¿½ï¿½ Hashcat ï¿½×¶ï¿½Ö´ï¿½Ðºï¿½ï¿½ï¿½ ============
+async function runHashcatPhase(hashFile, outFile, hashMode, args, phaseName, event, id, session, previousAttempts = 0) {
     const hashcatPath = getHashcatPath();
     const hashcatDir = getHashcatDir();
+    
+    return new Promise((resolve) => {
+        const fullArgs = ['-m', hashMode, hashFile, ...args, '-o', outFile, '--potfile-disable', '-w', '3', '--status', '--status-timer=2'];
+        
+        console.log(`[Crack] Phase ${phaseName}: hashcat ${fullArgs.join(' ')}`);
+        
+        const proc = spawn(hashcatPath, fullArgs, { cwd: hashcatDir, windowsHide: true });
+        session.process = proc;
+        
+        let totalAttempts = previousAttempts, lastSpeed = 0;
+        
+        proc.stdout.on('data', (data) => {
+            const line = data.toString();
+            const speedMatch = line.match(/Speed[^:]*:\s*([\d.]+)\s*([kMGT]?)H\/s/i);
+            if (speedMatch) {
+                let speed = parseFloat(speedMatch[1]);
+                const unit = speedMatch[2].toUpperCase();
+                if (unit === 'K') speed *= 1000;
+                else if (unit === 'M') speed *= 1000000;
+                else if (unit === 'G') speed *= 1000000000;
+                lastSpeed = Math.round(speed);
+            }
+            const progressMatch = line.match(/Progress[^:]*:\s*(\d+)/i);
+            if (progressMatch) totalAttempts = previousAttempts + parseInt(progressMatch[1]);
+            
+            if (lastSpeed > 0) {
+                event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: lastSpeed, current: phaseName, method: GPU_ATTACK_PHASES[session.currentPhase]?.method || phaseName });
+            }
+        });
+        
+        proc.stderr.on('data', (data) => {
+            const msg = data.toString();
+            if (!msg.includes('nvmlDeviceGetFanSpeed') && !msg.includes('WARN')) {
+                console.log(`[Hashcat ${phaseName}]`, msg.substring(0, 200));
+            }
+        });
+        
+        proc.on('close', (code) => {
+            let found = null;
+            if (fs.existsSync(outFile)) {
+                const content = fs.readFileSync(outFile, 'utf-8').trim();
+                const parts = content.split(':');
+                if (parts.length >= 2) found = parts[parts.length - 1];
+            }
+            console.log(`[Crack] Phase ${phaseName} finished, code: ${code}, found: ${!!found}`);
+            resolve({ found, attempts: totalAttempts, exhausted: code === 1 || code === 0 });
+        });
+        
+        proc.on('error', (err) => {
+            console.log(`[Crack] Phase ${phaseName} error:`, err.message);
+            resolve({ found: null, attempts: totalAttempts, exhausted: false, error: true });
+        });
+    });
+}
+
+// ============ Phase 2: ï¿½ï¿½ï¿½ò¹¥»ï¿½ ============
+async function runRuleAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
+    const hashcatDir = getHashcatDir();
+    const wordlist = path.join(hashcatDir, 'combined_wordlist.txt');
+    const rulePath = path.join(hashcatDir, 'rules', 'dive.rule');
+    
+    if (!fs.existsSync(rulePath)) {
+        console.log('[Crack] best64.rule not found, skipping rule attack');
+        return { found: null, attempts: previousAttempts, exhausted: true };
+    }
+    
+    session.currentPhase = 2;
+    event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: 'Starting rule attack...', method: 'Hashcat GPU Rule Attack' });
+    
+    const args = ['-a', '0', '-r', rulePath, wordlist];
+    return runHashcatPhase(hashFile, outFile, hashMode, args, 'Rule Attack', event, id, session, previousAttempts);
+}
+
+// ============ Phase 3: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ë¹¥ï¿½ï¿½ ============
+async function runMaskAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
+    session.currentPhase = 3;
+    let totalAttempts = previousAttempts;
+    
+    for (const maskConfig of SMART_MASKS) {
+        if (!session.active) break;
+        
+        event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: `Mask: ${maskConfig.desc}`, method: 'Hashcat GPU Smart Mask' });
+        
+        const args = ['-a', '3', maskConfig.mask];
+        const result = await runHashcatPhase(hashFile, outFile, hashMode, args, `Mask (${maskConfig.desc})`, event, id, session, totalAttempts);
+        
+        totalAttempts = result.attempts;
+        if (result.found) return result;
+    }
+    
+    return { found: null, attempts: totalAttempts, exhausted: true };
+}
+
+// ============ Phase 4: ï¿½ï¿½Ï¹ï¿½ï¿½ï¿½ ============
+async function runHybridAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
+    const hashcatDir = getHashcatDir();
+    const wordlist = path.join(hashcatDir, 'combined_wordlist.txt');
+    
+    session.currentPhase = 4;
+    let totalAttempts = previousAttempts;
+    
+    // Mode 6: wordlist + mask (word + digits)
+    for (const suffix of HYBRID_SUFFIXES) {
+        if (!session.active) break;
+        
+        event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: `Hybrid: word+${suffix}`, method: 'Hashcat GPU Hybrid' });
+        
+        const args = ['-a', '6', wordlist, suffix];
+        const result = await runHashcatPhase(hashFile, outFile, hashMode, args, `Hybrid (word+${suffix})`, event, id, session, totalAttempts);
+        
+        totalAttempts = result.attempts;
+        if (result.found) return result;
+    }
+    
+    // Mode 7: mask + wordlist (digits + word) - Ö»ï¿½ï¿½Ò»ï¿½ï¿½
+    if (session.active) {
+        event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: 'Hybrid: ?d?d?d?d+word', method: 'Hashcat GPU Hybrid' });
+        
+        const args = ['-a', '7', '?d?d?d?d', wordlist];
+        const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Hybrid (?d?d?d?d+word)', event, id, session, totalAttempts);
+        
+        totalAttempts = result.attempts;
+        if (result.found) return result;
+    }
+    
+    return { found: null, attempts: totalAttempts, exhausted: true };
+}
+
+
+// ============ Phase 5: ï¿½ï¿½ï¿½ï¿½Ä£Ê½ï¿½ï¿½ï¿½ï¿½ ============
+async function runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
+    const hashcatDir = getHashcatDir();
+    session.currentPhase = 5;
+    
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½Ä£Ê½ï¿½Öµï¿½
+    const keyboardDict = path.join(hashcatDir, 'keyboard_patterns.txt');
+    
+    // ï¿½ï¿½ï¿½É¼ï¿½ï¿½ï¿½Ä£Ê½ï¿½ï¿½ï¿½ï¿½
+    const variants = new Set();
+    for (const pattern of KEYBOARD_PATTERNS) {
+        variants.add(pattern);
+        variants.add(pattern.toUpperCase());
+        variants.add(pattern.charAt(0).toUpperCase() + pattern.slice(1));
+        // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Öºï¿½×º
+        for (const suffix of ['1', '12', '123', '!', '1!', '2024', '2023']) {
+            variants.add(pattern + suffix);
+            variants.add(pattern.charAt(0).toUpperCase() + pattern.slice(1) + suffix);
+        }
+    }
+    
+    fs.writeFileSync(keyboardDict, Array.from(variants).join('\n'));
+    console.log(`[Crack] Created keyboard patterns dict with ${variants.size} entries`);
+    
+    event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: 'Keyboard patterns attack...', method: 'Hashcat GPU Keyboard' });
+    
+    const args = ['-a', '0', keyboardDict];
+    const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Keyboard Patterns', event, id, session, previousAttempts);
+    
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½Ä¼ï¿½
+    try { fs.unlinkSync(keyboardDict); } catch(e) {}
+    
+    return result;
+}
+// ============ Phase 5: ï¿½ï¿½ï¿½ï¿½ï¿½ë±©ï¿½ï¿½ ============
+async function runShortBruteforce(hashFile, outFile, hashMode, event, id, session, previousAttempts, options = {}) {
+    session.currentPhase = 6;
+    
+    // Use user settings if provided, otherwise use defaults
+    const { charset, minLength, maxLength } = options;
+    const minLen = minLength || 1;
+    const maxLen = Math.min(maxLength || 6, 10); // GPU max 10 chars
+    
+    // Build hashcat mask based on user charset selection
+    let maskChar = '?a'; // default: all printable
+    if (charset) {
+        const hasLower = charset.includes('abcdefghijklmnopqrstuvwxyz'.charAt(0));
+        const hasUpper = charset.includes('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.charAt(0));
+        const hasDigit = charset.includes('0');
+        const hasSpecial = charset.includes('!') || charset.includes('@');
+        
+        if (hasDigit && !hasLower && !hasUpper && !hasSpecial) {
+            maskChar = '?d'; // digits only
+        } else if (hasLower && !hasUpper && !hasDigit && !hasSpecial) {
+            maskChar = '?l'; // lowercase only
+        } else if (hasUpper && !hasLower && !hasDigit && !hasSpecial) {
+            maskChar = '?u'; // uppercase only
+        } else if (hasLower && hasDigit && !hasUpper && !hasSpecial) {
+            maskChar = '?h'; // lowercase + digits (custom charset needed)
+        } else if (hasLower && hasUpper && hasDigit && !hasSpecial) {
+            maskChar = '?a'; // alphanumeric - use ?a for simplicity
+        } else {
+            maskChar = '?a'; // all printable
+        }
+    }
+    
+    // Always use custom charset (-1) for precise control
+    let args;
+    if (charset && charset.length > 0) {
+        // Use user's exact charset as custom charset
+        const mask = '?1'.repeat(maxLen);
+        args = ['-a', '3', '-1', charset, '--increment', '--increment-min=' + minLen, '--increment-max=' + maxLen, mask];
+    } else {
+        // Default: all printable characters
+        const mask = '?a'.repeat(maxLen);
+        args = ['-a', '3', '--increment', '--increment-min=' + minLen, '--increment-max=' + maxLen, mask];
+    }
+    
+    const charsetDesc = charset ? charset.substring(0, 20) + (charset.length > 20 ? '...' : '') : 'default';
+    event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: `Bruteforce (${minLen}-${maxLen} chars, ${charsetDesc})...`, method: 'Hashcat GPU Bruteforce' });
+    
+    console.log('[Crack] Bruteforce with user settings - charset:', charsetDesc, 'length:', minLen, '-', maxLen);
+    console.log('[Crack] Hashcat args:', args.join(' '));
+    
+    return runHashcatPhase(hashFile, outFile, hashMode, args, 'User Bruteforce', event, id, session, previousAttempts);
+}
+
+
+// ============ GPU Bruteforce ï¿½ï¿½ï¿½ï¿½ï¿½Æ½âº¯ï¿½ï¿½ ============
+async function runHashcatBruteforce(archivePath, encryption, options, event, id, session, startTime, previousAttempts = 0) {
+    const { charset, minLength, maxLength } = options;
+    const hashcatPath = getHashcatPath();
+    const hashcatDir = getHashcatDir();
+    
+    console.log('[Crack] Starting GPU bruteforce attack');
+    
+    let hash;
+    try {
+        hash = await extractHash(archivePath, encryption);
+    } catch (err) {
+        console.log('[Crack] Hash extraction failed for bruteforce:', err.message);
+        return { found: null, attempts: previousAttempts };
+    }
+    
+    const tempDir = path.join(os.tmpdir(), 'hashcat-brute-' + Date.now());
+    fs.mkdirSync(tempDir, { recursive: true });
+    const hashFile = path.join(tempDir, 'hash.txt');
+    const outFile = path.join(tempDir, 'cracked.txt');
+    fs.writeFileSync(hashFile, hash);
+    
+    return new Promise((resolve) => {
+        const hashMode = encryption.hashcatMode || '17200';
+        
+        // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ - ï¿½ï¿½ï¿½ï¿½ï¿½Ö·ï¿½ï¿½ï¿½
+        const cs = charset || 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let maskChar = '?a'; // Ä¬ï¿½ï¿½ï¿½ï¿½ï¿½Ð¿É´ï¿½Ó¡ï¿½Ö·ï¿½
+        if (cs === 'abcdefghijklmnopqrstuvwxyz0123456789') {
+            maskChar = '?l?d'; // Ð¡Ð´+ï¿½ï¿½ï¿½ï¿½
+        } else if (cs.includes('A') && cs.includes('a') && cs.includes('0')) {
+            maskChar = '?a'; // ï¿½ï¿½ï¿½ï¿½
+        } else if (cs.includes('a') && !cs.includes('A')) {
+            maskChar = '?l'; // ï¿½ï¿½Ð¡Ð´
+        }
+        
+        const minLen = minLength || 1;
+        const maxLen = Math.min(maxLength || 8, 10); // GPU ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½10Î»
+        
+        // Ê¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä£Ê½ï¿½Ó¶Ìµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+        const args = [
+            '-m', hashMode,
+            '-a', '3',  // ï¿½ï¿½ï¿½ï¿½/ï¿½ï¿½ï¿½ï¿½Ä£Ê½
+            hashFile,
+            '-o', outFile,
+            '--potfile-disable',
+            '-w', '3',
+            '--status',
+            '--status-timer=2',
+            '--increment',
+            '--increment-min=' + minLen,
+            '--increment-max=' + maxLen,
+            '?a?a?a?a?a?a?a?a?a?a'.substring(0, maxLen * 2) // ï¿½ï¿½ï¿½ï¿½
+        ];
+        
+        console.log('[Crack] GPU Bruteforce command:', hashcatPath, args.join(' '));
+        console.log('[Crack] Bruteforce range:', minLen, '-', maxLen, 'characters');
+        
+        const proc = spawn(hashcatPath, args, { cwd: hashcatDir, windowsHide: true });
+        session.process = proc;
+        
+        let totalAttempts = previousAttempts, lastSpeed = 0, currentLength = minLen;
+        
+        proc.stdout.on('data', (data) => {
+            const line = data.toString();
+            
+            // ï¿½ï¿½ï¿½ï¿½ï¿½Ù¶ï¿½
+            const speedMatch = line.match(/Speed[^:]*:\s*([\d.]+)\s*([kMGT]?)H\/s/i);
+            if (speedMatch) {
+                let speed = parseFloat(speedMatch[1]);
+                const unit = speedMatch[2].toUpperCase();
+                if (unit === 'K') speed *= 1000;
+                else if (unit === 'M') speed *= 1000000;
+                else if (unit === 'G') speed *= 1000000000;
+                lastSpeed = Math.round(speed);
+            }
+            
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+            const progressMatch = line.match(/Progress[^:]*:\s*(\d+)/i);
+            if (progressMatch) totalAttempts = previousAttempts + parseInt(progressMatch[1]);
+            
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½
+            const lengthMatch = line.match(/Guess\.Mask[^:]*:\s*\?a{(\d+)}/i);
+            if (lengthMatch) currentLength = parseInt(lengthMatch[1]);
+            
+            if (lastSpeed > 0) {
+                event.reply('zip:crack-progress', { 
+                    id, 
+                    attempts: totalAttempts, 
+                    speed: lastSpeed, 
+                    current: `GPU bruteforce (${currentLength} chars)...`, 
+                    method: 'Hashcat GPU Bruteforce',
+                    currentLength 
+                });
+            }
+        });
+        
+        proc.stderr.on('data', (data) => { 
+            const msg = data.toString();
+            if (!msg.includes('nvmlDeviceGetFanSpeed')) {
+                console.log('[Hashcat Brute]', msg); 
+            }
+        });
+        
+        proc.on('close', (code) => {
+            let found = null;
+            if (fs.existsSync(outFile)) {
+                const content = fs.readFileSync(outFile, 'utf-8').trim();
+                const parts = content.split(':');
+                if (parts.length >= 2) found = parts[parts.length - 1];
+            }
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
+            
+            console.log('[Crack] GPU bruteforce finished, code:', code, 'found:', !!found);
+            resolve({ found, attempts: totalAttempts });
+        });
+        
+        proc.on('error', (err) => {
+            console.log('[Crack] GPU bruteforce error:', err.message);
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
+            resolve({ found: null, attempts: totalAttempts });
+        });
+    });
+}
+// ============ Hashcat GPU ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ ============
+async function crackWithHashcat(archivePath, options, event, id, session, startTime, encryption = null) {
+    const hashcatPath = getHashcatPath();
+    const hashcatDir = getHashcatDir();
+    const attackMode = options.mode || 'dictionary'; // 'dictionary' or 'bruteforce'
+    const isBruteforceMode = attackMode === 'bruteforce';
+
+    console.log('[Crack] Attack mode selected:', attackMode, '- Skip dictionary phases:', isBruteforceMode);
 
     if (!fs.existsSync(hashcatPath)) {
         console.log('[Crack] Hashcat not available, falling back to CPU');
         return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
     }
 
-    // ?????§Õ??? encryption??????
     if (!encryption) {
         encryption = await detectEncryption(archivePath);
     }
 
-    console.log('[Crack] GPU mode with hashcat, format:', encryption.format, 'mode:', encryption.hashcatMode);
-    event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Extracting hash...', method: 'Hashcat GPU (' + encryption.method + ')' });
-
+    console.log('[Crack] Starting GPU crack pipeline, format:', encryption.format, 'mode:', encryption.hashcatMode);
+    
+    // ï¿½ï¿½È¡ hash
     let hash;
     try {
         hash = await extractHash(archivePath, encryption);
@@ -549,92 +944,131 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
         return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
     }
 
-    const tempDir = path.join(os.tmpdir(), 'hashcat-' + Date.now());
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½Ä¼ï¿½
+    const tempDir = path.join(os.tmpdir(), 'hashcat-pipeline-' + Date.now());
     fs.mkdirSync(tempDir, { recursive: true });
     const hashFile = path.join(tempDir, 'hash.txt');
     const outFile = path.join(tempDir, 'cracked.txt');
     fs.writeFileSync(hashFile, hash);
 
-    return new Promise((resolve) => {
-        // ??¨¹???? hashcat ??
-        const hashMode = encryption.hashcatMode || '17200';
-        const args = ['-m', hashMode, '-a', mode === 'dictionary' ? '0' : '3', hashFile, '-o', outFile, '--potfile-disable', '-w', '3', '--status', '--status-timer=1'];
-        
-        if (mode === 'dictionary') {
-            const dictPath = dictionaryPath && fs.existsSync(dictionaryPath) ? dictionaryPath : path.join(hashcatDir, 'example.dict');
-            args.push(dictPath);
-        } else {
-            const cs = charset || 'abcdefghijklmnopqrstuvwxyz0123456789';
-            let mask = '';
-            if (cs.includes('a')) mask += '?l';
-            if (cs.includes('A')) mask += '?u';
-            if (cs.includes('0')) mask += '?d';
-            if (!mask) mask = '?a';
-            const minLen = minLength || 1, maxLen = Math.min(maxLength || 6, 8);
-            args.push('--increment', '--increment-min=' + minLen, '--increment-max=' + maxLen, mask.repeat(maxLen));
-        }
+    const hashMode = encryption.hashcatMode || '17200';
+    let totalAttempts = 0;
+    session.currentPhase = 1;
 
-        console.log('[Crack] Hashcat command:', hashcatPath, args.join(' '));
-        console.log('[Crack] Hash mode:', hashMode, '(' + getHashModeDescription(hashMode) + ')');
+    try {
+        // ========== Phase 1: Dictionary Attack (skip in bruteforce mode) ==========
+        if (!isBruteforceMode) {
+            console.log('[Crack] Phase 1: Dictionary Attack');
+            event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Starting dictionary attack...', method: 'Hashcat GPU Dictionary' });
 
-        // ??????? hashcat ????????
-        const proc = spawn(hashcatPath, args, { cwd: hashcatDir, windowsHide: true });
-        session.process = proc;
-
-        let totalAttempts = 0, lastSpeed = 0;
-
-        proc.stdout.on('data', (data) => {
-            const line = data.toString();
-            // ???????: Speed.#1.........: 1234.5 kH/s
-            const speedMatch = line.match(/Speed[^:]*:\s*([\d.]+)\s*([kMGT]?)H\/s/i);
-            if (speedMatch) {
-                let speed = parseFloat(speedMatch[1]);
-                const unit = speedMatch[2].toUpperCase();
-                if (unit === 'K') speed *= 1000;
-                else if (unit === 'M') speed *= 1000000;
-                else if (unit === 'G') speed *= 1000000000;
-                lastSpeed = Math.round(speed);
+            // Use rockyou.txt (14M passwords) or combined_wordlist.txt
+            let dictPath = path.join(hashcatDir, 'rockyou.txt');
+            if (!fs.existsSync(dictPath)) {
+                dictPath = path.join(hashcatDir, 'combined_wordlist.txt');
             }
-            // ????????
-            const progressMatch = line.match(/Progress[^:]*:\s*(\d+)/i);
-            if (progressMatch) totalAttempts = parseInt(progressMatch[1]);
+            const builtinDict = dictPath;
+            console.log('[Crack] Using dictionary:', path.basename(builtinDict));
 
-            if (lastSpeed > 0) {
-                event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: lastSpeed, current: 'GPU processing...', method: 'Hashcat GPU (' + encryption.method + ')' });
-            }
-        });
+            if (fs.existsSync(builtinDict)) {
+                const args = ['-a', '0', builtinDict];
+                const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Dictionary', event, id, session, 0);
+                totalAttempts = result.attempts;
 
-        proc.stderr.on('data', (data) => { console.log('[Hashcat]', data.toString()); });
-
-        proc.on('close', (code) => {
-            let found = null;
-            if (fs.existsSync(outFile)) {
-                const content = fs.readFileSync(outFile, 'utf-8').trim();
-                const parts = content.split(':');
-                if (parts.length >= 2) found = parts[parts.length - 1];
-            }
-            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
-
-            if (found) { resolve({ found, attempts: totalAttempts }); }
-            else if (!session.active) { resolve({ found: null, attempts: totalAttempts }); }
-            else {
-                console.log('[Crack] Hashcat finished without result, code:', code);
-                if (code !== 0 && code !== 1) {
-                    // Hashcat ????????? CPU
-                    crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime).then(resolve);
-                } else {
-                    resolve({ found: null, attempts: totalAttempts });
+                if (result.found) {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    return { found: result.found, attempts: totalAttempts };
                 }
             }
-        });
+        } else {
+            console.log('[Crack] Skipping Phase 1 (Dictionary) - Bruteforce mode selected');
+        }
 
-        proc.on('error', (err) => {
-            console.log('[Crack] Hashcat error:', err.message);
-            crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime).then(resolve);
-        });
-    });
+        // ========== Phase 2: Rule Attack (skip in bruteforce mode) ==========
+        if (session.active && !isBruteforceMode) {
+            console.log('[Crack] Phase 2: Rule Attack');
+            const result = await runRuleAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+            totalAttempts = result.attempts;
+
+            if (result.found) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return { found: result.found, attempts: totalAttempts };
+            }
+        } else if (isBruteforceMode) {
+            console.log('[Crack] Skipping Phase 2 (Rule) - Bruteforce mode selected');
+        }
+
+        // ========== Phase 3: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ë¹¥ï¿½ï¿½ ==========
+        if (session.active) {
+            console.log('[Crack] Phase 3: Smart Mask Attack');
+            const result = await runMaskAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+            totalAttempts = result.attempts;
+            
+            if (result.found) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return { found: result.found, attempts: totalAttempts };
+            }
+        }
+
+        // ========== Phase 4: ï¿½ï¿½Ï¹ï¿½ï¿½ï¿½ ==========
+        if (session.active && !isBruteforceMode) {
+            console.log('[Crack] Phase 4: Hybrid Attack');
+            const result = await runHybridAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+            totalAttempts = result.attempts;
+            
+            if (result.found) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return { found: result.found, attempts: totalAttempts };
+            }
+        } else if (isBruteforceMode) {
+            console.log('[Crack] Skipping Phase 4 (Hybrid) - Bruteforce mode selected');
+        }
+
+        // ========== Phase 5: ï¿½ï¿½ï¿½ï¿½Ä£Ê½ï¿½ï¿½ï¿½ï¿½ ==========
+        if (session.active) {
+            console.log('[Crack] Phase 5: Keyboard Patterns Attack');
+            const result = await runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+            totalAttempts = result.attempts;
+            
+            if (result.found) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return { found: result.found, attempts: totalAttempts };
+            }
+        }
+
+        // ========== Phase 6: ï¿½ï¿½ï¿½ï¿½ï¿½ë±©ï¿½ï¿½ ==========
+        if (session.active) {
+            console.log('[Crack] Phase 6: Short Bruteforce');
+            const result = await runShortBruteforce(hashFile, outFile, hashMode, event, id, session, totalAttempts, options);
+            totalAttempts = result.attempts;
+            
+            if (result.found) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return { found: result.found, attempts: totalAttempts };
+            }
+        }
+
+        // ========== Phase 7: CPU ï¿½ï¿½ï¿½ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½ ==========
+        if (session.active) {
+            console.log('[Crack] Phase 7: CPU Smart Dictionary Fallback');
+            session.currentPhase = 7;
+            event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: 'GPU exhausted, trying CPU smart dictionary...', method: 'CPU Smart Dictionary' });
+            
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            
+            // CPU Ö»ï¿½ï¿½ï¿½Öµï¿½Ä£Ê½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+            const cpuOptions = { ...options, mode: 'dictionary' };
+            return crackWithMultiThreadCPU(archivePath, cpuOptions, event, id, session, startTime);
+        }
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        return { found: null, attempts: totalAttempts };
+
+    } catch (err) {
+        console.log('[Crack] Pipeline error:', err.message);
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
+        return { found: null, attempts: totalAttempts };
+    }
 }
-
 function getHashModeDescription(mode) {
     const modes = {
         '17200': 'PKZIP (Compressed)',
@@ -659,7 +1093,7 @@ async function crackWithBkcrack(archivePath, options, event, id, session, startT
     console.log('[Crack] Attempting known plaintext attack with bkcrack');
     event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Analyzing archive...', method: 'bkcrack (Known Plaintext)' });
     
-    // ??????????????§Ò?
+    // ??????????????ï¿½ï¿½?
     const listProc = spawn(pathTo7zip, ['l', '-slt', archivePath], { windowsHide: true });
     let listOutput = '';
     await new Promise(r => {
@@ -784,39 +1218,186 @@ export const registerFileCompressor = () => {
         return result.canceled ? null : result.filePaths[0];
     });
     
-    ipcMain.handle('zip:compress', async (event, { files, outputPath, format, password, compressionLevel }) => {
-        return new Promise((resolve, reject) => {
-            try {
-                const output = fs.createWriteStream(outputPath);
-                let archive;
-                if (format === 'zip' && password) { archive = archiver.create('zip-encrypted', { zlib: { level: compressionLevel || 6 }, encryptionMethod: 'aes256', password }); }
-                else if (format === 'zip') { archive = archiver('zip', { zlib: { level: compressionLevel || 6 } }); }
-                else if (format === 'tar') { archive = archiver('tar'); }
-                else if (format === 'tar.gz') { archive = archiver('tar', { gzip: true, gzipOptions: { level: compressionLevel || 6 } }); }
-                else { archive = archiver('zip', { zlib: { level: compressionLevel || 6 } }); }
-                output.on('close', () => resolve({ success: true, size: archive.pointer() }));
-                archive.on('error', reject);
-                archive.pipe(output);
-                files.forEach(file => {
-                    if (fs.statSync(file).isDirectory()) { archive.directory(file, path.basename(file)); }
-                    else { archive.file(file, { name: path.basename(file) }); }
+    ipcMain.on('zip:compress', async (event, { files, options, id }) => {
+        console.log('[Compress] Starting compression:', { files, options, id });
+        try {
+            const downloadPath = options.outputPath || app.getPath('downloads');
+            const outputFilePath = path.join(downloadPath, options.outputName || `archive_${id}.zip`);
+            const format = options.outputName?.split('.').pop() || 'zip';
+            const password = options.password;
+            const compressionLevel = options.level || 6;
+            
+            console.log('[Compress] Output path:', outputFilePath, 'Format:', format);
+            
+            event.sender.send('zip:progress', { id, status: 'starting', percent: 0 });
+            
+            const output = fs.createWriteStream(outputFilePath);
+            let archive;
+            
+            if (format === 'zip' && password) { 
+                console.log('[Compress] Creating encrypted ZIP archive');
+                archive = archiver.create('zip-encrypted', { zlib: { level: compressionLevel }, encryptionMethod: 'aes256', password }); 
+            } else if (format === 'zip') { 
+                console.log('[Compress] Creating ZIP archive');
+                archive = archiver('zip', { zlib: { level: compressionLevel } }); 
+            } else if (format === 'tar') { 
+                console.log('[Compress] Creating TAR archive');
+                archive = archiver('tar'); 
+            } else if (format === 'tar.gz' || format === 'gz') { 
+                console.log('[Compress] Creating TAR.GZ archive');
+                archive = archiver('tar', { gzip: true, gzipOptions: { level: compressionLevel } }); 
+            } else if (format === '7z') {
+                console.log('[Compress] Creating 7Z archive using 7zip binary');
+                // 7z format needs special handling with 7zip binary
+                const args = ['a', '-t7z', `-mx=${compressionLevel}`];
+                if (password) args.push(`-p${password}`);
+                args.push(outputFilePath, ...files);
+                
+                const proc = spawn(pathTo7zip, args, { windowsHide: true });
+                let error = '';
+                
+                proc.stderr.on('data', (data) => { error += data.toString(); });
+                proc.stdout.on('data', (data) => {
+                    const line = data.toString();
+                    console.log('[Compress 7z]', line);
+                    const match = line.match(/(\d+)%/);
+                    if (match) {
+                        event.sender.send('zip:progress', { id, status: 'compressing', percent: parseInt(match[1]) });
+                    }
                 });
-                archive.finalize();
-            } catch (err) { reject(err); }
-        });
+                
+                proc.on('close', (code) => {
+                    console.log('[Compress 7z] Finished with code:', code);
+                    if (code === 0) {
+                        event.sender.send('zip:complete', { id, success: true, outputPath: outputFilePath });
+                    } else {
+                        event.sender.send('zip:complete', { id, success: false, error: error || 'Compression failed' });
+                    }
+                });
+                
+                proc.on('error', (err) => {
+                    console.log('[Compress 7z] Error:', err.message);
+                    event.sender.send('zip:complete', { id, success: false, error: err.message });
+                });
+                return;
+            } else { 
+                console.log('[Compress] Creating default ZIP archive');
+                archive = archiver('zip', { zlib: { level: compressionLevel } }); 
+            }
+            
+            // Track progress
+            let totalSize = 0;
+            let processedSize = 0;
+            
+            // Calculate total size
+            files.forEach(file => {
+                const stat = fs.statSync(file);
+                if (stat.isDirectory()) {
+                    // Recursively calculate directory size
+                    const getSize = (dir) => {
+                        let size = 0;
+                        fs.readdirSync(dir).forEach(f => {
+                            const fp = path.join(dir, f);
+                            const s = fs.statSync(fp);
+                            size += s.isDirectory() ? getSize(fp) : s.size;
+                        });
+                        return size;
+                    };
+                    totalSize += getSize(file);
+                } else {
+                    totalSize += stat.size;
+                }
+            });
+            
+            console.log('[Compress] Total size to compress:', totalSize, 'bytes');
+            
+            archive.on('progress', (progress) => {
+                const percent = totalSize > 0 ? Math.round((progress.fs.processedBytes / totalSize) * 100) : 0;
+                console.log('[Compress] Progress:', percent, '%');
+                event.sender.send('zip:progress', { id, status: 'compressing', percent: Math.min(percent, 99) });
+            });
+            
+            output.on('close', () => {
+                console.log('[Compress] Archive completed successfully');
+                event.sender.send('zip:progress', { id, status: 'completed', percent: 100 });
+                event.sender.send('zip:complete', { id, success: true, outputPath: outputFilePath, size: archive.pointer() });
+            });
+            
+            archive.on('error', (err) => {
+                console.log('[Compress] Archive error:', err.message);
+                event.sender.send('zip:complete', { id, success: false, error: err.message });
+            });
+            
+            archive.pipe(output);
+            
+            console.log('[Compress] Adding files to archive...');
+            files.forEach(file => {
+                console.log('[Compress] Adding:', file);
+                if (fs.statSync(file).isDirectory()) { 
+                    archive.directory(file, path.basename(file)); 
+                } else { 
+                    archive.file(file, { name: path.basename(file) }); 
+                }
+            });
+            
+            console.log('[Compress] Finalizing archive...');
+            archive.finalize();
+        } catch (err) { 
+            console.log('[Compress] Error:', err.message);
+            event.sender.send('zip:complete', { id, success: false, error: err.message });
+        }
     });
     
-    ipcMain.handle('zip:decompress', async (event, { archivePath, outputDir, password }) => {
-        return new Promise((resolve, reject) => {
+    ipcMain.on('zip:decompress', async (event, { file, options, id }) => {
+        console.log('[Decompress] Starting decompression:', { file, options, id });
+        try {
+            const downloadPath = options.outputPath || app.getPath('downloads');
+            const outputDir = path.join(downloadPath, path.basename(file, path.extname(file)));
+            
+            console.log('[Decompress] Output dir:', outputDir);
+            
+            // Create output directory if it doesn't exist
+            if (!fs.existsSync(outputDir)) {
+                fs.mkdirSync(outputDir, { recursive: true });
+            }
+            
+            event.sender.send('zip:progress', { id, status: 'starting', percent: 0 });
+            
             const args = ['x', '-y', '-o' + outputDir];
-            if (password) args.push('-p' + password);
-            args.push(archivePath);
+            if (options.password) args.push('-p' + options.password);
+            args.push(file);
+            
             const proc = spawn(pathTo7zip, args, { windowsHide: true });
             let error = '';
+            
             proc.stderr.on('data', (data) => { error += data.toString(); });
-            proc.on('close', (code) => { if (code === 0) resolve({ success: true }); else reject(new Error(error || 'Decompression failed')); });
-            proc.on('error', reject);
-        });
+            proc.stdout.on('data', (data) => {
+                const line = data.toString();
+                console.log('[Decompress]', line);
+                const match = line.match(/(\d+)%/);
+                if (match) {
+                    event.sender.send('zip:progress', { id, status: 'extracting', percent: parseInt(match[1]) });
+                }
+            });
+            
+            proc.on('close', (code) => { 
+                console.log('[Decompress] Finished with code:', code);
+                if (code === 0) {
+                    event.sender.send('zip:progress', { id, status: 'completed', percent: 100 });
+                    event.sender.send('zip:complete', { id, success: true, outputPath: outputDir });
+                } else {
+                    event.sender.send('zip:complete', { id, success: false, error: error || 'Decompression failed' });
+                }
+            });
+            
+            proc.on('error', (err) => {
+                console.log('[Decompress] Error:', err.message);
+                event.sender.send('zip:complete', { id, success: false, error: err.message });
+            });
+        } catch (err) {
+            console.log('[Decompress] Error:', err.message);
+            event.sender.send('zip:complete', { id, success: false, error: err.message });
+        }
     });
     
     ipcMain.on('zip:crack-start', async (event, { id, archivePath, options }) => {

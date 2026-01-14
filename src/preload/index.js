@@ -6,9 +6,10 @@ const api = {
     // Clipboard API - use IPC to main process
     copyToClipboard: (text) => ipcRenderer.invoke('clipboard:copy', text),
     
-    getVideoInfo: (url) => ipcRenderer.invoke('get-video-info', url),
+    getVideoInfo: (url, options) => ipcRenderer.invoke('get-video-info', url, options),
     getPreviewVideo: (videoInfo) => ipcRenderer.invoke('get-preview-video', videoInfo),
     getVideoProxyUrl: (videoInfo) => ipcRenderer.invoke('get-video-proxy-url', videoInfo),
+    getImageProxyUrl: (imageUrl) => ipcRenderer.invoke('get-image-proxy-url', imageUrl),
     downloadVideo: (url, options, id) => ipcRenderer.send('download-video', { url, options, id }),
     pauseDownload: (id) => ipcRenderer.send('pause-download', id),
     cancelDownload: (id) => ipcRenderer.send('cancel-download', id),
@@ -57,6 +58,8 @@ const api = {
     zipDecompress: (file, options, id) => ipcRenderer.send('zip:decompress', { file, options, id }),
     onZipProgress: (callback) => ipcRenderer.on('zip:progress', (_, data) => callback(data)),
     onZipComplete: (callback) => ipcRenderer.on('zip:complete', (_, data) => callback(data)),
+    offZipProgress: () => ipcRenderer.removeAllListeners('zip:progress'),
+    offZipComplete: () => ipcRenderer.removeAllListeners('zip:complete'),
     
     // Password Cracking API
     zipSelectDictionary: () => ipcRenderer.invoke('zip:select-dictionary'),

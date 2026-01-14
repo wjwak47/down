@@ -1,6 +1,6 @@
 {
   "name": "proflow-studio",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "ProFlow Studio - Professional Workflow Tools for Media & Documents",
   "main": "./out/main/index.js",
   "author": "jonshon",
@@ -15,7 +15,9 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "copy-worker": "node scripts/copy-worker.js"
+    "copy-worker": "node scripts/copy-worker.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.0",
@@ -28,6 +30,7 @@
     "clsx": "^2.1.0",
     "decompress": "^4.2.1",
     "docx": "^9.5.1",
+    "douyin-video-get": "^1.0.2",
     "electron-log": "^5.4.3",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.7.3",
@@ -63,9 +66,11 @@
     "electron-vite": "^2.0.0",
     "eslint": "^8.56.0",
     "eslint-plugin-react": "^7.33.2",
+    "fast-check": "^4.5.3",
     "postcss": "^8.5.6",
     "prettier": "^3.2.4",
     "tailwindcss": "^3.4.19",
-    "vite": "^5.0.12"
+    "vite": "^5.0.12",
+    "vitest": "^4.0.17"
   }
 }

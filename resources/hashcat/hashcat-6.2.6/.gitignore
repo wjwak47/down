@@ -1,0 +1,7 @@
+# Large wordlist files
+rockyou.txt
+combined_wordlist.txt
+*.kernel
+hashcat.pid
+hashcat.restore
+hashcat.dictstat2

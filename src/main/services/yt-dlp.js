@@ -46,219 +46,191 @@ class YtDlpService {
                     offscreen: false,
                     nodeIntegration: false,
                     contextIsolation: true,
-                    webSecurity: false,
-                    partition: 'in-memory-extraction' // Use a separate partition to isolate session and audio settings
+                    webSecurity: false,  // Disable web security to allow cross-domain requests if needed
+                    partition: 'in-memory-extraction' // Use a separate partition
                 }
             });
 
-            // Mute the window to prevent audio playing during extraction
+            // Mute audio
             win.webContents.setAudioMuted(true);
 
-            // Use Mobile UA to force single MP4 file (video+audio) instead of separate streams
-            const mobileUA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+            // Use Mobile UA
+            const mobileUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
             win.webContents.setUserAgent(mobileUA);
 
             let detectedVideoUrl = null;
-            let headers = {};
 
-            // Clear cache to ensure network requests are triggered
-            win.webContents.session.clearCache();
-
-            // Intercept network requests to find the actual video URL (bypassing blob:)
-            win.webContents.session.webRequest.onResponseStarted({ urls: ['*://*/*'] }, (details) => {
-                const contentTypeHeader = details.responseHeaders['content-type'] || details.responseHeaders['Content-Type'];
+            // Intercept requests to capture video URL
+            win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
                 const url = details.url;
-
-                // Check content type
-                let isVideo = false;
-                if (contentTypeHeader) {
-                    const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader;
-                    if (contentType.includes('video/') ||
-                        contentType === 'application/vnd.apple.mpegurl' ||
-                        contentType === 'application/octet-stream') {
-                        isVideo = true;
-                    }
+                if (url.includes('video_id=') || (url.includes('.mp4') && !url.includes('blob:'))) {
+                    if (!detectedVideoUrl) detectedVideoUrl = url;
                 }
-
-                // Check URL extension/pattern
-                if (url.includes('.mp4') || url.includes('.webm') || url.includes('video_id=')) {
-                    isVideo = true;
-                }
-
-                if (isVideo && !url.startsWith('blob:') && !url.includes('favicon')) {
-                    // Prioritize mp4/video URLs over m3u8 if possible, but capture what we find
-                    if (!detectedVideoUrl || (url.includes('.mp4') && !detectedVideoUrl.includes('.mp4'))) {
-                        console.log('Detected video URL from network:', url);
-                        detectedVideoUrl = url;
-                        headers = {
-                            'User-Agent': mobileUA,
-                            'Cookie': '', // Will be filled later
-                            'Referer': 'https://www.douyin.com/'
-                        };
-                        // Trigger early exit check
-                        setTimeout(checkEarlyExit, 100);
-                    }
-                }
+                callback({ requestHeaders: details.requestHeaders });
             });
 
-            let timeoutReached = false;
-            let earlyExitTimer = null;
-
+            // Timeout
             const timeout = setTimeout(() => {
-                timeoutReached = true;
-                console.log('[Douyin] Timeout reached, but checking if we have video URL...');
-            }, 20000);
+                if (!win.isDestroyed()) win.destroy();
+                reject(new Error('Extraction timed out'));
+            }, 30000);
 
-            win.loadURL(url);
+            let finished = false;
 
-            // If we detect a video URL via network, wait a bit more for metadata then exit early
-            const checkEarlyExit = () => {
-                if (detectedVideoUrl && !earlyExitTimer) {
-                    console.log('[Douyin] Video URL detected, will exit early in 3 seconds...');
-                    earlyExitTimer = setTimeout(() => {
-                        if (!win.isDestroyed()) {
-                            console.log('[Douyin] Early exit triggered');
-                            win.webContents.executeJavaScript('window.stop()'); // Stop loading
-                            win.webContents.emit('did-finish-load'); // Trigger finish event
-                        }
-                    }, 3000); // Wait 3 more seconds for metadata after URL detection
-                }
-            };
+            // Use dom-ready + wait
+            win.webContents.on('dom-ready', async () => {
+                if (finished || win.isDestroyed()) return;
 
-            win.webContents.on('did-finish-load', async () => {
+                // Wait a bit for SSR hydration
+                await new Promise(r => setTimeout(r, 2000));
+
+                if (finished || win.isDestroyed()) return;
+                finished = true;
+                clearTimeout(timeout);
+
                 try {
-                    await new Promise(r => setTimeout(r, 2000));
+                    // Enhanced Script with Regex Fix
                     const result = await win.webContents.executeJavaScript(`
                         (function() {
-                            try {
-                                let data = {};
-                                const video = document.querySelector('video');
-                                if (video) data.url = video.src;
-                                
-                                // Metadata extraction
-                                const pageTitle = document.title;
-                                if (pageTitle && pageTitle !== 'Douyin') {
-                                    data.title = pageTitle.split('-')[0].split('|')[0].trim();
-                                }
-                                
-                                // Try to find thumbnail
-                                const poster = video ? video.poster : null;
-                                const metaImage = document.querySelector('meta[property="og:image"]');
-                                const twitterImage = document.querySelector('meta[name="twitter:image"]');
-                                const linkImage = document.querySelector('link[rel="image_src"]');
-                                
-                                if (poster) {
-                                    data.thumbnail = poster;
-                                } else if (metaImage) {
-                                    data.thumbnail = metaImage.content;
-                                } else if (twitterImage) {
-                                    data.thumbnail = twitterImage.content;
-                                } else if (linkImage) {
-                                    data.thumbnail = linkImage.href;
-                                }
+                            var d = {
+                                url: null,
+                                title: document.title || 'Douyin Video',
+                                uploader: null,
+                                duration: null,
+                                thumbnail: null
+                            };
 
-                                const metaDesc = document.querySelector('meta[name="description"]');
-                                if (metaDesc && metaDesc.content && !data.title) {
-                                    data.title = metaDesc.content.substring(0, 100);
+                            // 1. DOM Video Search
+                            var vids = document.querySelectorAll('video');
+                            var bestVid = null;
+                            var maxDur = 0;
+                            for (var i = 0; i < vids.length; i++) {
+                                var v = vids[i];
+                                if (v.src && !v.src.startsWith('blob:')) {
+                                    if (v.duration > maxDur) {
+                                        maxDur = v.duration;
+                                        bestVid = v;
+                                    } else if (!bestVid) bestVid = v;
                                 }
-                                
-                                // Try multiple selectors for author/uploader
-                                let author = null;
-                                const authorSelectors = [
-                                    '[data-e2e="user-title"]',
-                                    '[class*="author"]',
-                                    '[class*="user"]',
-                                    '[class*="nickname"]',
-                                    'h2',
-                                    'h3'
-                                ];
-                                
-                                for (const selector of authorSelectors) {
-                                    author = document.querySelector(selector);
-                                    if (author && author.textContent && author.textContent.trim()) {
-                                        data.uploader = author.textContent.trim();
-                                        break;
-                                    }
-                                }
-                                
-                                // Fallback: Search in HTML for encoded URL if not found in video src
-                                if (!data.url || data.url.startsWith('blob:')) {
-                                    const html = document.documentElement.outerHTML;
-                                    const match = html.match(/src%22%3A%22(https%3A%2F%2F[^%"]*?video[^%"]*?)%22/);
-                                    if (match && match[1]) {
-                                        data.fallbackUrl = decodeURIComponent(match[1]);
-                                    } else {
-                                        const match2 = html.match(/"src":"(https:\\/\\/[^"]*?video[^"]*?)"/);
-                                        if (match2 && match2[1]) {
-                                            data.fallbackUrl = match2[1].replace(/\\\\u0026/g, '&');
+                            }
+                            if (bestVid) {
+                                d.url = bestVid.src;
+                                if (maxDur > 0) d.duration = Math.floor(maxDur);
+                            }
+
+                            // 2. Title Parsing
+                            var parts = (d.title || '').split('-');
+                            if (parts.length >= 2) {
+                                d.title = parts[0].trim();
+                                if (!d.uploader) d.uploader = parts[parts.length - 1].trim();
+                            }
+
+                            // 3. SIGI_STATE
+                            try {
+                                var sigiEl = document.getElementById('SIGI_STATE');
+                                if (sigiEl && sigiEl.textContent) {
+                                    var sigi = JSON.parse(sigiEl.textContent);
+                                    if (sigi.ItemModule) {
+                                        var keys = Object.keys(sigi.ItemModule);
+                                        if (keys.length > 0) {
+                                            var item = sigi.ItemModule[keys[0]];
+                                            if (item) {
+                                                if (item.desc) d.title = item.desc;
+                                                if (item.duration) d.duration = Math.floor(item.duration / 1000);
+                                                if (item.nickname) d.uploader = item.nickname;
+                                                if (item.author) d.uploader = item.author;
+                                                if (item.video && item.video.cover && item.video.cover.url_list && item.video.cover.url_list[0]) {
+                                                    d.thumbnail = item.video.cover.url_list[0];
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                                return data;
-                            } catch (e) { return { error: e.message }; }
+                            } catch(e) {}
+
+                            // 4. SSR DATA
+                            try {
+                                var ssrEl = document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__');
+                                if (ssrEl && ssrEl.textContent) {
+                                    var ssr = JSON.parse(ssrEl.textContent);
+                                    if (ssr['__DEFAULT_SCOPE__'] && ssr['__DEFAULT_SCOPE__']['webapp.video-detail']) {
+                                        var detail = ssr['__DEFAULT_SCOPE__']['webapp.video-detail'].itemInfo.itemStruct;
+                                        if (detail) {
+                                            if (detail.desc) d.title = detail.desc;
+                                            if (detail.duration) d.duration = Math.floor(detail.duration / 1000);
+                                            if (detail.author && detail.author.nickname) d.uploader = detail.author.nickname;
+                                            if (detail.video && detail.video.cover && detail.video.cover.url_list[0]) d.thumbnail = detail.video.cover.url_list[0];
+                                        }
+                                    }
+                                }
+                            } catch(e) {}
+
+                            // 5. RENDER_DATA (Regex Fixed)
+                            try {
+                                var renderEl = document.getElementById('RENDER_DATA');
+                                if (renderEl && renderEl.textContent) {
+                                    var decoded = decodeURIComponent(renderEl.textContent);
+                                    if (!d.uploader) {
+                                        var nm = decoded.match(/"nickname"\\s*:\\s*"([^"]+)"/);
+                                        if (nm) d.uploader = nm[1];
+                                    }
+                                    if (!d.duration) {
+                                        var dm = decoded.match(/"duration"\\s*:\\s*(\\d+)/);
+                                        if (dm) d.duration = Math.floor(parseInt(dm[1]) / 1000);
+                                    }
+                                    if (!d.thumbnail) {
+                                        var tm = decoded.match(/"cover".*?"url_list"\\s*:\\s*\\["([^"]+)"/);
+                                        if (tm) d.thumbnail = tm[1];
+                                    }
+                                }
+                            } catch(e) {}
+                            
+                            // 6. Meta Tags
+                            if (!d.thumbnail) {
+                                var og = document.querySelector('meta[property="og:image"]');
+                                if (og && og.content) d.thumbnail = og.content;
+                            }
+
+                            // Normalize
+                            if (d.thumbnail && d.thumbnail.startsWith('//')) d.thumbnail = 'https:' + d.thumbnail;
+
+                            return d;
                         })()
                     `);
 
-                    // Determine final URL
-                    let finalUrl = detectedVideoUrl;
-
-                    // If network intercept failed, try DOM/Fallback
-                    if (!finalUrl) {
-                        if (result && result.url && !result.url.startsWith('blob:')) {
-                            finalUrl = result.url;
-                        } else if (result && result.fallbackUrl) {
-                            finalUrl = result.fallbackUrl;
-                            console.log('Using fallback URL from HTML regex:', finalUrl);
-                        }
-                    }
-
+                    let finalUrl = detectedVideoUrl || result.url;
                     if (finalUrl) {
                         if (finalUrl.includes('playwm')) finalUrl = finalUrl.replace('playwm', 'play');
                         if (finalUrl.startsWith('//')) finalUrl = 'https:' + finalUrl;
 
-                        const cookies = await win.webContents.session.cookies.get({ url: finalUrl });
+                        const cookies = await win.webContents.session.cookies.get({ url: 'https://www.douyin.com' });
                         const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-                        console.log('[Douyin] Successfully extracted video info');
-                        console.log('[Douyin] Title:', result.title || 'Douyin Video');
-                        console.log('[Douyin] Uploader:', result.uploader || 'Unknown');
+                        if (!win.isDestroyed()) win.destroy();
 
                         resolve({
                             title: result.title || 'Douyin Video',
                             thumbnail: result.thumbnail,
                             uploader: result.uploader || 'Unknown',
-                            duration_string: 'N/A',
+                            duration: result.duration || null,
+                            duration_string: result.duration ? `${Math.floor(result.duration / 60)}:${String(result.duration % 60).padStart(2, '0')}` : null,
                             url: finalUrl,
                             webpage_url: url,
                             ext: 'mp4',
                             extractor: 'douyin_native',
-                            headers: {
-                                'User-Agent': mobileUA,
-                                'Cookie': cookieString,
-                                'Referer': 'https://www.douyin.com/'
-                            }
+                            headers: { 'User-Agent': mobileUA, 'Cookie': cookieString, 'Referer': 'https://www.douyin.com/' }
                         });
                     } else {
-                        if (timeoutReached) {
-                            reject(new Error('Timeout: Could not extract video URL within 20 seconds'));
-                        } else {
-                            reject(new Error('Could not find video URL'));
-                        }
+                        if (!win.isDestroyed()) win.destroy();
+                        reject(new Error('Could not find video URL'));
                     }
                 } catch (e) {
-                    reject(e);
-                } finally {
-                    clearTimeout(timeout);
                     if (!win.isDestroyed()) win.destroy();
+                    reject(e);
                 }
             });
 
-            win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-                if (errorCode === -3) return;
-                clearTimeout(timeout);
-                if (!win.isDestroyed()) win.destroy();
-                reject(new Error(`Failed to load: ${errorDescription}`));
-            });
+            win.loadURL(url);
         });
     }
 
@@ -306,7 +278,7 @@ class YtDlpService {
         });
     }
 
-    async getVideoInfo(url) {
+    async getVideoInfo(url, options = {}) {
         if (url && url.includes('douyin.com')) {
             try {
                 return await this.extractDouyinNative(url);
@@ -315,14 +287,30 @@ class YtDlpService {
             }
         }
 
+        // Detect platform for format selection
+        const isBilibili = url.includes('bilibili.com') || url.includes('b23.tv');
+
         return new Promise((resolve, reject) => {
             const args = [
                 '--dump-json',
                 '--no-playlist',
-                // PREVIEW FIX: Strictly force H.264 MP4 via HTTP
-                '-f', 'best[vcodec^=avc1][ext=mp4][protocol^=http]/best[vcodec^=avc1][ext=mp4]/best[ext=mp4]/best',
-                url
+                '--no-check-certificate'
             ];
+
+            // For Bilibili: don't specify format at all, let yt-dlp auto-select
+            // This avoids "Requested format is not available" errors
+            if (!isBilibili) {
+                args.push('-f', 'best[vcodec^=avc1][ext=mp4][protocol^=http]/best[vcodec^=avc1][ext=mp4]/best[ext=mp4]/best');
+            }
+
+            // Add cookies if provided (especially for Bilibili)
+            if (options.cookies) {
+                args.push('--add-header', `Cookie:${options.cookies}`);
+            }
+
+            args.push(url);
+            
+            console.log('[YtDlp] getVideoInfo args:', args.join(' '));
 
             const child = spawn(this.binPath, args);
             let output = '';
@@ -347,17 +335,30 @@ class YtDlpService {
                             videoUrl = info.formats[info.formats.length - 1].url;
                         }
 
+                        // Fix thumbnail URL: convert http to https for Bilibili and other platforms
+                        let thumbnail = info.thumbnail;
+                        if (thumbnail && thumbnail.startsWith('http://')) {
+                            thumbnail = thumbnail.replace('http://', 'https://');
+                        }
+
                         resolve({
                             id: info.id,
                             title: info.title,
-                            thumbnail: info.thumbnail,
+                            thumbnail: thumbnail,
                             uploader: info.uploader,
+                            duration: info.duration,
                             duration_string: info.duration_string,
                             url: videoUrl,
                             webpage_url: info.webpage_url,
                             ext: info.ext,
                             extractor: info.extractor,
-                            headers: info.http_headers
+                            extractor_key: info.extractor_key,
+                            headers: info.http_headers,
+                            view_count: info.view_count,
+                            channel: info.channel,
+                            filesize: info.filesize,
+                            // Include formats array for format detection in UI
+                            formats: info.formats || []
                         });
                     } catch (e) {
                         reject(new Error('Failed to parse video info'));
@@ -375,21 +376,30 @@ class YtDlpService {
         const filenameTemplate = options.output || '%(title)s.%(ext)s';
         const outputPath = path.join(downloadDir, filenameTemplate);
 
-        // Determine if we're on macOS
-        const isMac = process.platform === 'darwin';
+        // Detect platform for format selection
+        const isBilibili = url.includes('bilibili.com') || url.includes('b23.tv');
+        const isYoutube = url.includes('youtube.com') || url.includes('youtu.be');
 
-        // Determine format based on audioOnly option
+        // Determine format based on audioOnly option and platform
         let formatString;
         if (options.audioOnly) {
             // For audio-only: download best audio in its original format (no conversion)
             formatString = 'bestaudio/best';
+        } else if (isBilibili) {
+            // Bilibili: video and audio are separate streams, need to merge
+            // Use bestvideo+bestaudio and let ffmpeg merge them
+            formatString = 'bestvideo+bestaudio/bestvideo*+bestaudio/best';
+        } else if (isYoutube) {
+            // YouTube: prefer specific formats for better compatibility
+            formatString = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best';
         } else {
-            // UNIVERSAL SAFE MODE: Revert to single-file MP4
-            // We use 'best[ext=mp4]' to fetch the best pre-merged format (video+audio in one file).
-            // This avoids ALL ffmpeg merging issues and ensures audio is present.
-            formatString = 'best[ext=mp4]/best';
+            // Other platforms: use flexible format selection
+            formatString = 'bestvideo+bestaudio/best[ext=mp4]/best';
         }
 
+        // Determine output format - use user's selection or default based on type
+        const outputFormat = options.mergeOutputFormat || (options.audioOnly ? 'm4a' : 'mp4');
+        
         const args = [
             url,
             '--format', formatString,
@@ -397,10 +407,37 @@ class YtDlpService {
             '--no-playlist',
             '--no-check-certificate',
             '--embed-metadata',
+            // 🔑 Force progress output on new lines for better parsing
+            '--newline',
+            // 🔑 Ensure progress is shown with template
+            '--progress',
+            '--progress-template', 'download:[PROGRESS] %(progress._percent_str)s of %(progress._total_bytes_str)s at %(progress._speed_str)s ETA %(progress._eta_str)s',
             // 🔑 CRITICAL FIX: Tell yt-dlp to print the final filepath after download
             // This works on ALL platforms and avoids encoding issues
             '--print', 'after_move:filepath'
         ];
+
+        // 🔑 CRITICAL: Only use --merge-output-format for VIDEO downloads (not audio-only)
+        // --merge-output-format is for merging video+audio streams, not for audio-only
+        if (options.audioOnly) {
+            // For audio-only downloads, use --extract-audio if conversion is needed
+            // m4a is usually the native format, so no conversion needed
+            // But if user wants mp3 or wav, we need to convert
+            if (outputFormat === 'mp3') {
+                args.push('--extract-audio');
+                args.push('--audio-format', 'mp3');
+                args.push('--audio-quality', '0'); // Best quality
+            } else if (outputFormat === 'wav') {
+                args.push('--extract-audio');
+                args.push('--audio-format', 'wav');
+            }
+            // For m4a, just download bestaudio - it's usually already m4a
+        } else {
+            // For video downloads, use merge-output-format
+            args.push('--merge-output-format', outputFormat);
+        }
+        
+        console.log(`[YtDlp] Using output format: ${outputFormat}, audioOnly: ${options.audioOnly}`);
 
         // Explicitly tell yt-dlp where ffmpeg is, just in case 'best' falls back to merging
         let ffmpegPath = '';
@@ -416,12 +453,26 @@ class YtDlpService {
             args.push('--ffmpeg-location', ffmpegPath);
         }
 
+        // 🔑 CRITICAL: Add Bilibili-specific headers to bypass 403 Forbidden
+        if (isBilibili) {
+            args.push('--referer', 'https://www.bilibili.com/');
+            args.push('--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            // Add extra headers that Bilibili might require
+            args.push('--add-header', 'Origin:https://www.bilibili.com');
+            // 🔑 Ignore errors and try to continue
+            args.push('--ignore-errors');
+            // 🔑 Retry on failure
+            args.push('--retries', '3');
+            // 🔑 Fragment retries for segmented downloads
+            args.push('--fragment-retries', '3');
+        }
+
         // Add headers if provided in options
         if (options.headers) {
-            if (options.headers['User-Agent']) {
+            if (options.headers['User-Agent'] && !isBilibili) {
                 args.push('--user-agent', options.headers['User-Agent']);
             }
-            if (options.headers['Referer']) {
+            if (options.headers['Referer'] && !isBilibili) {
                 args.push('--referer', options.headers['Referer']);
             }
             if (options.headers['Cookie']) {
@@ -431,6 +482,9 @@ class YtDlpService {
 
         // Note: For audio-only downloads, we keep the original format (m4a, aac, etc.)
         // No conversion to mp3 - preserves original quality for transcription
+
+        // 🔑 Debug: Log the full command
+        console.log(`[YtDlp] Download command: ${this.binPath} ${args.join(' ')}`);
 
         const child = spawn(this.binPath, args);
         child._outputPath = null;
@@ -468,11 +522,64 @@ class YtDlpService {
                 }
             }
 
-            // Match progress percentage
-            const match = str.match(/\s*(\d+\.?\d*)%/);
-            if (match) {
-                const progress = parseFloat(match[1]);
-                onProgress(progress);
+            // Parse full progress info from yt-dlp output
+            // New template format: "[PROGRESS] 45.3% of 100.50MiB at 2.50MiB/s ETA 00:22"
+            // Old format: "[download]  45.3% of  100.50MiB at    2.50MiB/s ETA 00:22"
+            const progressData = {
+                progress: 0,
+                speed: 0,
+                downloadedSize: 0,
+                totalSize: 0,
+                eta: 0
+            };
+
+            // Match progress percentage (handles both "45.3%" and " 45.3%")
+            const percentMatch = str.match(/(\d+\.?\d*)%/);
+            if (percentMatch) {
+                progressData.progress = parseFloat(percentMatch[1]);
+                console.log(`[yt-dlp ${id}] 📊 STDOUT Progress: ${progressData.progress}%`);
+            }
+
+            // Match total size: "of 100.50MiB" or "of ~100.50MiB"
+            const totalMatch = str.match(/of\s+~?([\d.]+)\s*(MiB|KiB|GiB|MB|KB|GB)/i);
+            if (totalMatch) {
+                const value = parseFloat(totalMatch[1]);
+                const unit = totalMatch[2].toLowerCase();
+                if (unit === 'kib' || unit === 'kb') progressData.totalSize = value * 1024;
+                else if (unit === 'mib' || unit === 'mb') progressData.totalSize = value * 1024 * 1024;
+                else if (unit === 'gib' || unit === 'gb') progressData.totalSize = value * 1024 * 1024 * 1024;
+            }
+
+            // Calculate downloaded size from percentage and total
+            if (progressData.totalSize > 0 && progressData.progress > 0) {
+                progressData.downloadedSize = Math.round(progressData.totalSize * progressData.progress / 100);
+            }
+
+            // Match speed: "at 2.50MiB/s" or "2.50MiB/s"
+            const speedMatch = str.match(/([\d.]+)\s*(MiB|KiB|GiB|MB|KB|GB)\/s/i);
+            if (speedMatch) {
+                const value = parseFloat(speedMatch[1]);
+                const unit = speedMatch[2].toLowerCase();
+                if (unit === 'kib' || unit === 'kb') progressData.speed = value * 1024;
+                else if (unit === 'mib' || unit === 'mb') progressData.speed = value * 1024 * 1024;
+                else if (unit === 'gib' || unit === 'gb') progressData.speed = value * 1024 * 1024 * 1024;
+            }
+
+            // Match ETA: "ETA 00:22" or "ETA 01:23:45"
+            const etaMatch = str.match(/ETA\s+(\d+):(\d+)(?::(\d+))?/i);
+            if (etaMatch) {
+                if (etaMatch[3]) {
+                    // HH:MM:SS format
+                    progressData.eta = parseInt(etaMatch[1]) * 3600 + parseInt(etaMatch[2]) * 60 + parseInt(etaMatch[3]);
+                } else {
+                    // MM:SS format
+                    progressData.eta = parseInt(etaMatch[1]) * 60 + parseInt(etaMatch[2]);
+                }
+            }
+
+            // Only call onProgress if we have valid progress data
+            if (progressData.progress > 0) {
+                onProgress(progressData);
             }
 
             // FALLBACK: Old parsing methods (kept for compatibility)
@@ -510,10 +617,129 @@ class YtDlpService {
                     if (active) active.outputPath = dest;
                 }
             }
+
+            // Capture merged file path from [Merger] output
+            const mergerMatch = str.match(/\[Merger\] Merging formats into "(.+?)"/);
+            if (mergerMatch) {
+                const dest = mergerMatch[1].trim();
+                console.log(`[yt-dlp ${id}] 🎯 Captured from [Merger]:`, dest);
+                child._outputPath = dest;
+                const active = this.activeDownloads.get(id);
+                if (active) active.outputPath = dest;
+            }
+
+            // Also capture from [ffmpeg] output for merged files
+            const ffmpegDestMatch = str.match(/\[ffmpeg\] Merging formats into "(.+?)"/);
+            if (ffmpegDestMatch) {
+                const dest = ffmpegDestMatch[1].trim();
+                console.log(`[yt-dlp ${id}] 🎯 Captured from [ffmpeg]:`, dest);
+                child._outputPath = dest;
+                const active = this.activeDownloads.get(id);
+                if (active) active.outputPath = dest;
+            }
         });
 
         child.stderr.on('data', (data) => {
-            console.error(`[yt-dlp ${id} ERROR]`, data.toString('utf8'));
+            const str = data.toString('utf8');
+            
+            // Debug: Log all stderr output to see what yt-dlp is sending
+            console.log(`[yt-dlp ${id} STDERR]`, str.trim());
+            
+            // yt-dlp outputs progress info to stderr, so we need to parse it here too
+            // Parse full progress info from yt-dlp output
+            // Example: "[download]  45.3% of  100.50MiB at    2.50MiB/s ETA 00:22"
+            const progressData = {
+                progress: 0,
+                speed: 0,
+                downloadedSize: 0,
+                totalSize: 0,
+                eta: 0
+            };
+
+            // Match progress percentage
+            const percentMatch = str.match(/(\d+\.?\d*)%/);
+            if (percentMatch) {
+                progressData.progress = parseFloat(percentMatch[1]);
+                console.log(`[yt-dlp ${id}] 📊 Progress parsed: ${progressData.progress}%`);
+            }
+
+            // Match total size: "of 100.50MiB" or "of ~100.50MiB"
+            const totalMatch = str.match(/of\s+~?([\d.]+)\s*(MiB|KiB|GiB|MB|KB|GB)/i);
+            if (totalMatch) {
+                const value = parseFloat(totalMatch[1]);
+                const unit = totalMatch[2].toLowerCase();
+                if (unit === 'kib' || unit === 'kb') progressData.totalSize = value * 1024;
+                else if (unit === 'mib' || unit === 'mb') progressData.totalSize = value * 1024 * 1024;
+                else if (unit === 'gib' || unit === 'gb') progressData.totalSize = value * 1024 * 1024 * 1024;
+            }
+
+            // Calculate downloaded size from percentage and total
+            if (progressData.totalSize > 0 && progressData.progress > 0) {
+                progressData.downloadedSize = Math.round(progressData.totalSize * progressData.progress / 100);
+            }
+
+            // Match speed: "at 2.50MiB/s" or "2.50MiB/s"
+            const speedMatch = str.match(/([\d.]+)\s*(MiB|KiB|GiB|MB|KB|GB)\/s/i);
+            if (speedMatch) {
+                const value = parseFloat(speedMatch[1]);
+                const unit = speedMatch[2].toLowerCase();
+                if (unit === 'kib' || unit === 'kb') progressData.speed = value * 1024;
+                else if (unit === 'mib' || unit === 'mb') progressData.speed = value * 1024 * 1024;
+                else if (unit === 'gib' || unit === 'gb') progressData.speed = value * 1024 * 1024 * 1024;
+            }
+
+            // Match ETA: "ETA 00:22" or "ETA 01:23:45"
+            const etaMatch = str.match(/ETA\s+(\d+):(\d+)(?::(\d+))?/i);
+            if (etaMatch) {
+                if (etaMatch[3]) {
+                    // HH:MM:SS format
+                    progressData.eta = parseInt(etaMatch[1]) * 3600 + parseInt(etaMatch[2]) * 60 + parseInt(etaMatch[3]);
+                } else {
+                    // MM:SS format
+                    progressData.eta = parseInt(etaMatch[1]) * 60 + parseInt(etaMatch[2]);
+                }
+            }
+
+            // Only call onProgress if we have valid progress data
+            if (progressData.progress > 0) {
+                console.log(`[yt-dlp ${id}] 📤 Sending progress: ${JSON.stringify(progressData)}`);
+                onProgress(progressData);
+            }
+
+            // Also capture file paths from stderr (some yt-dlp versions output here)
+            // Capture merged file path from [Merger] output
+            const mergerMatch = str.match(/\[Merger\] Merging formats into "(.+?)"/);
+            if (mergerMatch) {
+                const dest = mergerMatch[1].trim();
+                console.log(`[yt-dlp ${id}] 🎯 STDERR Captured from [Merger]:`, dest);
+                child._outputPath = dest;
+                const active = this.activeDownloads.get(id);
+                if (active) active.outputPath = dest;
+            }
+
+            // Also capture from [ffmpeg] output for merged files
+            const ffmpegDestMatch = str.match(/\[ffmpeg\] Merging formats into "(.+?)"/);
+            if (ffmpegDestMatch) {
+                const dest = ffmpegDestMatch[1].trim();
+                console.log(`[yt-dlp ${id}] 🎯 STDERR Captured from [ffmpeg]:`, dest);
+                child._outputPath = dest;
+                const active = this.activeDownloads.get(id);
+                if (active) active.outputPath = dest;
+            }
+
+            // Capture filepath from --print output in stderr too
+            const lines = str.split(/\r?\n/);
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed && (trimmed.includes('\\') || trimmed.includes('/')) &&
+                    /\.(mp4|webm|mkv|avi|mov|m4a|mp3|wav|aac|ogg|flac)$/i.test(trimmed) &&
+                    !trimmed.includes('[') && !trimmed.includes('%')) {
+                    console.log(`[yt-dlp ${id}] 🎯 STDERR FILEPATH:`, trimmed);
+                    child._outputPath = trimmed;
+                    const active = this.activeDownloads.get(id);
+                    if (active) active.outputPath = trimmed;
+                }
+            }
         });
 
 

@@ -40,27 +40,80 @@ const TOAST_TYPES = {
         borderColor: 'border-blue-200 dark:border-blue-800',
         iconColor: 'text-blue-500',
         textColor: 'text-blue-800 dark:text-blue-200'
+    },
+    // 任务完成通知类型
+    downloadComplete: {
+        icon: 'download_done',
+        bgColor: 'bg-emerald-50 dark:bg-emerald-900/30',
+        borderColor: 'border-emerald-200 dark:border-emerald-800',
+        iconColor: 'text-emerald-500',
+        textColor: 'text-emerald-800 dark:text-emerald-200'
+    },
+    downloadFailed: {
+        icon: 'error_outline',
+        bgColor: 'bg-rose-50 dark:bg-rose-900/30',
+        borderColor: 'border-rose-200 dark:border-rose-800',
+        iconColor: 'text-rose-500',
+        textColor: 'text-rose-800 dark:text-rose-200'
+    },
+    crackComplete: {
+        icon: 'lock_open',
+        bgColor: 'bg-violet-50 dark:bg-violet-900/30',
+        borderColor: 'border-violet-200 dark:border-violet-800',
+        iconColor: 'text-violet-500',
+        textColor: 'text-violet-800 dark:text-violet-200'
+    },
+    crackFailed: {
+        icon: 'lock',
+        bgColor: 'bg-slate-50 dark:bg-slate-900/30',
+        borderColor: 'border-slate-200 dark:border-slate-800',
+        iconColor: 'text-slate-500',
+        textColor: 'text-slate-800 dark:text-slate-200'
     }
 };
 
 // Single Toast Component
-const Toast = ({ id, message, type = 'info', onClose }) => {
+const Toast = ({ id, message, type = 'info', title, onClick, onClose, actionLabel, onAction }) => {
     const config = TOAST_TYPES[type] || TOAST_TYPES.info;
+    const isClickable = !!onClick;
+
+    const handleClick = (e) => {
+        if (onClick && e.target.tagName !== 'BUTTON') {
+            onClick();
+            onClose(id);
+        }
+    };
 
     return (
         <div
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm animate-slide-in ${config.bgColor} ${config.borderColor}`}
+            onClick={handleClick}
+            className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm animate-slide-in ${config.bgColor} ${config.borderColor} ${isClickable ? 'cursor-pointer hover:shadow-xl transition-shadow' : ''}`}
             style={{ animation: 'slideIn 0.3s ease-out' }}
         >
-            <span className={`material-symbols-outlined ${config.iconColor}`}>
+            <span className={`material-symbols-outlined mt-0.5 ${config.iconColor}`}>
                 {config.icon}
             </span>
-            <p className={`flex-1 text-sm font-medium ${config.textColor}`}>
-                {message}
-            </p>
+            <div className="flex-1 min-w-0">
+                {title && (
+                    <p className={`text-sm font-semibold ${config.textColor} truncate`}>
+                        {title}
+                    </p>
+                )}
+                <p className={`text-sm ${title ? 'text-slate-600 dark:text-slate-400' : `font-medium ${config.textColor}`} ${title ? '' : ''}`}>
+                    {message}
+                </p>
+                {actionLabel && onAction && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onAction(); onClose(id); }}
+                        className="mt-2 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                    >
+                        {actionLabel}
+                    </button>
+                )}
+            </div>
             <button
-                onClick={() => onClose(id)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                onClick={(e) => { e.stopPropagation(); onClose(id); }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex-shrink-0"
             >
                 <span className="material-symbols-outlined text-[18px]">close</span>
             </button>
@@ -71,7 +124,7 @@ const Toast = ({ id, message, type = 'info', onClose }) => {
 // Toast Container
 const ToastContainer = ({ toasts, removeToast }) => {
     return (
-        <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm">
+        <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm w-80">
             {toasts.map((toast) => (
                 <Toast
                     key={toast.id}
@@ -87,9 +140,19 @@ const ToastContainer = ({ toasts, removeToast }) => {
 export const ToastProvider = ({ children }) => {
     const [toasts, setToasts] = useState([]);
 
-    const addToast = useCallback((message, type = 'info', duration = 4000) => {
+    const addToast = useCallback((options) => {
+        // 支持简单调用 addToast(message, type, duration) 或对象调用
+        let toastOptions = {};
+        if (typeof options === 'string') {
+            toastOptions = { message: options };
+        } else {
+            toastOptions = options;
+        }
+
         const id = Date.now() + Math.random();
-        setToasts(prev => [...prev, { id, message, type }]);
+        const { message, type = 'info', title, onClick, actionLabel, onAction, duration = 4000 } = toastOptions;
+        
+        setToasts(prev => [...prev, { id, message, type, title, onClick, actionLabel, onAction }]);
 
         if (duration > 0) {
             setTimeout(() => {
@@ -104,11 +167,38 @@ export const ToastProvider = ({ children }) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
+    // 简单的 toast 方法
     const toast = {
-        success: (msg, duration) => addToast(msg, 'success', duration),
-        error: (msg, duration) => addToast(msg, 'error', duration),
-        warning: (msg, duration) => addToast(msg, 'warning', duration),
-        info: (msg, duration) => addToast(msg, 'info', duration)
+        success: (msg, duration) => addToast({ message: msg, type: 'success', duration }),
+        error: (msg, duration) => addToast({ message: msg, type: 'error', duration }),
+        warning: (msg, duration) => addToast({ message: msg, type: 'warning', duration }),
+        info: (msg, duration) => addToast({ message: msg, type: 'info', duration }),
+        
+        // 任务完成通知方法
+        downloadComplete: (options) => addToast({ 
+            ...options, 
+            type: 'downloadComplete',
+            duration: options.duration || 5000 
+        }),
+        downloadFailed: (options) => addToast({ 
+            ...options, 
+            type: 'downloadFailed',
+            duration: options.duration || 6000 
+        }),
+        crackComplete: (options) => addToast({ 
+            ...options, 
+            type: 'crackComplete',
+            duration: options.duration || 5000 
+        }),
+        crackFailed: (options) => addToast({ 
+            ...options, 
+            type: 'crackFailed',
+            duration: options.duration || 6000 
+        }),
+        
+        // 通用方法
+        custom: addToast,
+        dismiss: removeToast
     };
 
     return (
