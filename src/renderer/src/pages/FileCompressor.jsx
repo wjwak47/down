@@ -1,553 +1,473 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
+
+const Icons = {
+    compress: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>,
+    extract: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>,
+    key: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>,
+    file: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>,
+    close: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>,
+    plus: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>,
+    upload: <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>,
+    copy: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>,
+    unlock: <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>,
+    eye: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+    eyeOff: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>,
+    chevronDown: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>,
+    stop: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>,
+    bolt: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>,
+    folder: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" /></svg>,
+    folderOpen: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" /></svg>,
+    shield: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>,
+    cpu: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25z" /></svg>,
+    sparkles: <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>,
+};
 
 const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
-    // Core state
-    const [files, setFiles] = useState([]);
-    const [mode, setMode] = useState('compress'); // compress, extract, crack
+    // Separate file lists for each mode
+    const [compressFiles, setCompressFiles] = useState([]);
+    const [extractFiles, setExtractFiles] = useState([]);
+    const [crackFiles, setCrackFiles] = useState([]);
+    const [mode, setMode] = useState('compress');
     const [processing, setProcessing] = useState(false);
     const [progress, setProgress] = useState({});
     const [dragOver, setDragOver] = useState(false);
-    
-    // Compression options
     const [compressionLevel, setCompressionLevel] = useState(() => localStorage.getItem('compressionLevel') || 'normal');
     const [outputFormat, setOutputFormat] = useState('zip');
     const [showAdvanced, setShowAdvanced] = useState(false);
-    
-    // Password options
     const [usePassword, setUsePassword] = useState(false);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
-    
-    // Split options
     const [splitArchive, setSplitArchive] = useState(false);
-    const [volumeSize, setVolumeSize] = useState('100MB');
-    
-    // Crack options
-    const [attackMode, setAttackMode] = useState('dictionary');
+    const [volumeSize, setVolumeSize] = useState('100');
+    const [outputPath, setOutputPath] = useState(() => localStorage.getItem('compressOutputPath') || '');
+    const [extractOutputPath, setExtractOutputPath] = useState(() => localStorage.getItem('extractOutputPath') || '');
+    const [extractPassword, setExtractPassword] = useState('');
+    const [showExtractPassword, setShowExtractPassword] = useState(false);
+    const [showExtractAdvanced, setShowExtractAdvanced] = useState(false);
+    const [attackMode, setAttackMode] = useState('smart');
     const [charset, setCharset] = useState(['lowercase', 'numbers']);
     const [minLength, setMinLength] = useState(1);
     const [maxLength, setMaxLength] = useState(8);
-    const [crackStats, setCrackStats] = useState({ speed: 0, attempts: 0, progress: 0, currentLength: 1 });
+    const [crackStats, setCrackStats] = useState({ speed: 0, attempts: 0, progress: 0, currentLength: 1, current: '' });
     const [foundPassword, setFoundPassword] = useState(null);
-    const [useGpu, setUseGpu] = useState(() => localStorage.getItem('useGpuCrack') === 'true');
-    const [useCpuMultiThread, setUseCpuMultiThread] = useState(() => localStorage.getItem('useCpuMultiThread') !== 'false');
+    const [useCpuMultiThread] = useState(() => localStorage.getItem('useCpuMultiThread') !== 'false');
     const [gpuAvailable, setGpuAvailable] = useState(false);
-    const [cpuCores, setCpuCores] = useState(4);
     const [crackJobId, setCrackJobId] = useState(null);
-    const [encryptionInfo, setEncryptionInfo] = useState(null); // 加密类型信息
-    const [crackMethod, setCrackMethod] = useState(null); // 当前使用的破解方法
+    const [crackMethod, setCrackMethod] = useState(null);
 
-    // Check GPU availability on mount
+    // Helper to check if file is an archive
+    const isArchiveFile = (filePath) => {
+        const ext = filePath.split('.').pop().toLowerCase();
+        return ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz'].includes(ext);
+    };
+
+    // Get current files based on mode
+    const files = mode === 'compress' ? compressFiles : mode === 'extract' ? extractFiles : crackFiles;
+    const setFiles = mode === 'compress' ? setCompressFiles : mode === 'extract' ? setExtractFiles : setCrackFiles;
+
     useEffect(() => {
-        if (window.api?.zipCheckGpu) {
-            window.api.zipCheckGpu().then(result => {
-                setGpuAvailable(result?.available || false);
-                console.log('[FileCompressor] GPU available:', result?.available);
-            }).catch(() => setGpuAvailable(false));
-        }
-        // Get CPU cores count
-        setCpuCores(navigator.hardwareConcurrency || 4);
+        if (window.api?.zipCheckGpu) window.api.zipCheckGpu().then(r => setGpuAvailable(r?.available || false)).catch(() => {});
     }, []);
-
-    // Save GPU preference
+    useEffect(() => { localStorage.setItem('compressionLevel', compressionLevel); }, [compressionLevel]);
+    const [completedOutputPath, setCompletedOutputPath] = useState(null);
+    const [extractCompletedPath, setExtractCompletedPath] = useState(null);
     useEffect(() => {
-        localStorage.setItem('useGpuCrack', useGpu.toString());
-    }, [useGpu]);
-
-    // Save CPU multi-thread preference
-    useEffect(() => {
-        localStorage.setItem('useCpuMultiThread', useCpuMultiThread.toString());
-    }, [useCpuMultiThread]);
-
-    // Save compression level preference
-    useEffect(() => {
-        localStorage.setItem('compressionLevel', compressionLevel);
-    }, [compressionLevel]);
-
-    useEffect(() => {
-        const handleProgress = ({ status, entries, total, percent }) => {
-            const p = percent || (total ? Math.round((entries / total) * 100) : 0);
-            setProgress(prev => ({ ...prev, ['current-job']: { status, percent: p } }));
+        // Clear any existing listeners first to avoid duplicates
+        window.api.offZipProgress?.();
+        window.api.offZipComplete?.();
+        
+        const handleProgress = ({ id, status, entries, total, percent }) => {
+            console.log('[FileCompressor] Progress received:', { id, status, percent });
+            setProgress(prev => ({ ...prev, ['current-job']: { status, percent: percent || (total ? Math.round((entries / total) * 100) : 0) } }));
         };
-        const handleComplete = ({ success, error, outputPath }) => {
-            setProgress(prev => ({ ...prev, ['current-job']: { status: success ? 'completed' : 'error', percent: 100, error, outputPath } }));
+        const handleComplete = ({ id, success, error, outputPath: completedPath }) => {
+            console.log('[FileCompressor] Complete received:', { id, success, error, completedPath });
+            setProgress(prev => ({ ...prev, ['current-job']: { status: success ? 'completed' : 'error', percent: 100, error, outputPath: completedPath } }));
             setProcessing(false);
+            if (success && completedPath) {
+                if (mode === 'compress') {
+                    setCompletedOutputPath(completedPath);
+                } else if (mode === 'extract') {
+                    setExtractCompletedPath(completedPath);
+                }
+            }
         };
         window.api.onZipProgress(handleProgress);
         window.api.onZipComplete(handleComplete);
-        return () => {};
+        
+        console.log('[FileCompressor] Listeners registered');
+        
+        return () => {
+            console.log('[FileCompressor] Cleaning up listeners');
+            window.api.offZipProgress?.();
+            window.api.offZipComplete?.();
+        };
     }, []);
-
     useEffect(() => {
         if (pendingFiles?.length > 0) {
-            setFiles(prev => [...prev, ...pendingFiles.filter(p => !prev.includes(p))]);
+            // Add files to appropriate mode based on file type
+            const archives = pendingFiles.filter(isArchiveFile);
+            const nonArchives = pendingFiles.filter(f => !isArchiveFile(f));
+            
+            // Add non-archives to compress mode
+            if (nonArchives.length > 0) {
+                setCompressFiles(prev => [...prev, ...nonArchives.filter(p => !prev.includes(p))]);
+            }
+            // Add archives to extract and crack modes
+            if (archives.length > 0) {
+                setExtractFiles(prev => [...prev, ...archives.filter(p => !prev.includes(p))]);
+                setCrackFiles(prev => [...prev, ...archives.filter(p => !prev.includes(p))]);
+            }
             onClearPending?.();
         }
     }, [pendingFiles]);
+    useEffect(() => {
+        if (!window.api?.onZipCrackProgress) return;
+        window.api.onZipCrackStarted?.(() => {});
+        window.api.onZipCrackProgress(({ attempts, speed, current, currentLength, method }) => {
+            setCrackStats(prev => ({ speed: speed || 0, attempts: attempts || 0, current: current || '', currentLength: currentLength || prev.currentLength }));
+            if (method) setCrackMethod(method);
+        });
+        window.api.onZipCrackResult?.(({ success, password: pwd, error }) => {
+            setProcessing(false); setCrackJobId(null);
+            if (success && pwd) setFoundPassword(pwd);
+            else if (error && error !== 'Cancelled') setCrackStats(prev => ({ ...prev, error, status: 'error' }));
+            else if (!success && !error) setCrackStats(prev => ({ ...prev, status: 'not_found' }));
+        });
+        return () => window.api?.zipCrackOffListeners?.();
+    }, []);
+
+    const handleOpenFolder = async () => {
+        const downloadDir = localStorage.getItem('downloadPath') || '';
+        try {
+            const result = await window.api.openFolder(downloadDir);
+            if (!result?.success) await window.api.openDownloadsFolder();
+        } catch { 
+            try { await window.api.openDownloadsFolder(); } catch { }
+        }
+    };
+
+    const handleSelectOutputPath = async () => {
+        const path = await window.api.selectDownloadDirectory();
+        if (path) {
+            setOutputPath(path);
+            localStorage.setItem('compressOutputPath', path);
+        }
+    };
+
+    const handleSelectExtractOutputPath = async () => {
+        const path = await window.api.selectDownloadDirectory();
+        if (path) {
+            setExtractOutputPath(path);
+            localStorage.setItem('extractOutputPath', path);
+        }
+    };
 
     const handleSelectFiles = async () => {
-        try {
-            console.log('[FileCompressor] handleSelectFiles called, mode:', mode);
-            // Use different API based on mode
-            const paths = mode === 'compress' 
-                ? await window.api.zipSelectFiles()
-                : await window.api.zipSelectArchives();
-            console.log('[FileCompressor] Selected paths:', paths);
-            if (paths?.length > 0) setFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
-        } catch (error) {
-            console.error('[FileCompressor] Error selecting files:', error);
-            alert('Error selecting files: ' + error.message);
+        const paths = mode === 'compress' ? await window.api.zipSelectFiles() : await window.api.zipSelectArchives();
+        if (paths?.length > 0) {
+            if (mode === 'compress') {
+                setCompressFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
+            } else if (mode === 'extract') {
+                setExtractFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
+            } else {
+                setCrackFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
+            }
         }
     };
-
-    const handleRemoveFile = (index) => setFiles(files.filter((_, i) => i !== index));
-
-    const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); };
-    const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); };
     const handleDrop = (e) => {
         e.preventDefault(); e.stopPropagation(); setDragOver(false);
-        const droppedFiles = Array.from(e.dataTransfer.files);
-        if (droppedFiles.length > 0) {
-            const filePaths = droppedFiles.map(f => f.path);
-            setFiles(prev => [...prev, ...filePaths.filter(p => !prev.includes(p))]);
+        const paths = Array.from(e.dataTransfer.files).map(f => f.path);
+        if (paths.length > 0) {
+            if (mode === 'compress') {
+                setCompressFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
+            } else if (mode === 'extract') {
+                // Only add archive files for extract mode
+                const archives = paths.filter(isArchiveFile);
+                if (archives.length > 0) {
+                    setExtractFiles(prev => [...prev, ...archives.filter(p => !prev.includes(p))]);
+                }
+            } else {
+                // Only add archive files for crack mode
+                const archives = paths.filter(isArchiveFile);
+                if (archives.length > 0) {
+                    setCrackFiles(prev => [...prev, ...archives.filter(p => !prev.includes(p))]);
+                }
+            }
         }
     };
-
-    const toggleCharset = (id) => {
-        setCharset(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
-    };
-
-    const getPasswordStrength = (pwd) => {
-        if (!pwd) return { level: 0, text: '', color: '' };
-        let score = 0;
-        if (pwd.length >= 8) score++;
-        if (pwd.length >= 12) score++;
-        if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
-        if (/\d/.test(pwd)) score++;
-        if (/[^a-zA-Z0-9]/.test(pwd)) score++;
-        const levels = [
-            { level: 1, text: 'Weak', color: 'bg-red-500' },
-            { level: 2, text: 'Fair', color: 'bg-orange-500' },
-            { level: 3, text: 'Good', color: 'bg-yellow-500' },
-            { level: 4, text: 'Strong', color: 'bg-emerald-500' },
-            { level: 5, text: 'Very Strong', color: 'bg-emerald-600' }
-        ];
-        return levels[Math.min(score, 4)] || levels[0];
-    };
-
     const handleAction = () => {
         if (files.length === 0) return;
-        if (mode === 'crack') {
-            handleCrack();
-            return;
-        }
+        if (mode === 'crack') { handleCrack(); return; }
         setProcessing(true);
         const jobId = Date.now().toString();
         setProgress({ ['current-job']: { status: 'starting', percent: 0 } });
-        
-        const levelMap = { fast: 1, normal: 5, maximum: 9 };
-        const options = {
-            outputName: `archive_${jobId}.${outputFormat}`,
-            level: levelMap[compressionLevel],
-            password: usePassword && password ? password : undefined,
-            splitSize: splitArchive ? parseInt(volumeSize) * 1024 * 1024 : undefined
+        const options = { 
+            outputName: `archive_${jobId}.${outputFormat}`, 
+            level: { fast: 1, normal: 5, maximum: 9 }[compressionLevel], 
+            password: usePassword && password ? password : undefined, 
+            splitSize: splitArchive ? parseInt(volumeSize) * 1024 * 1024 : undefined,
+            outputPath: outputPath || undefined
         };
-        
-        if (mode === 'compress') {
-            window.api.zipCompress(files, options, jobId);
-        } else {
-            files.forEach(file => window.api.zipDecompress(file, { password: usePassword ? password : undefined }, jobId));
-        }
+        console.log('[FileCompressor] Starting action:', { mode, files, options, jobId });
+        if (mode === 'compress') window.api.zipCompress(files, options, jobId);
+        else files.forEach(file => window.api.zipDecompress(file, { password: extractPassword || undefined, outputPath: extractOutputPath || undefined }, jobId));
     };
-
     const handleCrack = () => {
-        if (files.length === 0) return;
-        if (!window.api?.zipCrackStart) {
-            console.error('Crack API not available');
-            return;
-        }
-        
-        setProcessing(true);
-        setFoundPassword(null);
-        setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength, status: null, error: null });
-        
-        const jobId = Date.now().toString();
-        setCrackJobId(jobId);
-        const archivePath = files[0]; // Use first file for cracking
-        
-        // Build charset string from selected options
-        let charsetStr = '';
-        if (charset.includes('lowercase')) charsetStr += 'abcdefghijklmnopqrstuvwxyz';
-        if (charset.includes('uppercase')) charsetStr += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        if (charset.includes('numbers')) charsetStr += '0123456789';
-        if (charset.includes('special')) charsetStr += '!@#$%^&*()_+-=[]{}|;:,.<>?';
-        
-        const options = {
-            mode: attackMode,
-            charset: charsetStr || 'abcdefghijklmnopqrstuvwxyz0123456789',
-            minLength,
-            maxLength,
-            useGpu: useGpu && gpuAvailable, // Enable GPU if available and selected
-            useCpuMultiThread // Enable CPU multi-threading
-        };
-        
-        console.log('[FileCompressor] Starting crack with options:', options);
-        
-        // Start cracking
-        window.api.zipCrackStart(archivePath, options, jobId);
+        if (!window.api?.zipCrackStart) return;
+        setProcessing(true); setFoundPassword(null);
+        setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength, status: null, current: '' });
+        const jobId = Date.now().toString(); setCrackJobId(jobId);
+        let cs = '';
+        if (charset.includes('lowercase')) cs += 'abcdefghijklmnopqrstuvwxyz';
+        if (charset.includes('uppercase')) cs += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        if (charset.includes('numbers')) cs += '0123456789';
+        if (charset.includes('special')) cs += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+        window.api.zipCrackStart(files[0], { mode: attackMode, charset: cs || 'abcdefghijklmnopqrstuvwxyz0123456789', minLength, maxLength, useGpu: gpuAvailable, useCpuMultiThread }, jobId);
     };
-
-    const handleCancelCrack = () => {
-        if (crackJobId && window.api?.zipCrackStop) {
-            console.log('[FileCompressor] Cancelling crack job:', crackJobId);
-            window.api.zipCrackStop(crackJobId);
-            setProcessing(false);
-            setCrackJobId(null);
-            setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength });
+    const handleCancel = () => {
+        if (mode === 'crack' && crackJobId) { 
+            window.api?.zipCrackStop?.(crackJobId); 
+            setCrackJobId(null); 
+            setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength, current: '' }); 
         }
+        // For compress/extract, just reset the state (the operation will complete in background)
+        setProcessing(false);
+        setProgress({});
     };
-    
-    // Setup crack listeners
-    useEffect(() => {
-        // Skip if API not available yet
-        if (typeof window === 'undefined' || !window.api) {
-            return;
-        }
-        
-        // Check if crack API methods exist
-        if (!window.api.onZipCrackStarted || !window.api.onZipCrackProgress || !window.api.onZipCrackResult) {
-            console.warn('Crack API not fully available');
-            return;
-        }
-        
-        const handleCrackStarted = ({ numWorkers }) => {
-            console.log(`Cracking started with ${numWorkers} workers`);
-        };
-        
-        const handleCrackProgress = ({ attempts, speed, current, currentLength, method }) => {
-            setCrackStats(prev => ({
-                speed: speed || 0,
-                attempts: attempts || 0,
-                current: current || '',
-                currentLength: currentLength || prev.currentLength || 1
-            }));
-            if (method) setCrackMethod(method);
-        };
-        
-        const handleCrackResult = ({ success, password, error, attempts }) => {
-            setProcessing(false);
-            setCrackJobId(null);
-            if (success && password) {
-                setFoundPassword(password);
-            } else if (error && error !== 'Cancelled') {
-                setCrackStats(prev => ({ ...prev, error, status: 'error' }));
-            } else if (!success && !error) {
-                // No password found after trying all combinations
-                setCrackStats(prev => ({ 
-                    ...prev, 
-                    status: 'not_found',
-                    message: `Password not found after ${(attempts || prev.attempts || 0).toLocaleString()} attempts`
-                }));
-            }
-        };
-        
-        window.api.onZipCrackStarted(handleCrackStarted);
-        window.api.onZipCrackProgress(handleCrackProgress);
-        window.api.onZipCrackResult(handleCrackResult);
-        
-        // 监听加密类型检测结果
-        if (window.api.onZipCrackEncryption) {
-            window.api.onZipCrackEncryption((info) => {
-                console.log('[FileCompressor] Encryption detected:', info);
-                setEncryptionInfo(info);
-            });
-        }
-        
-        return () => {
-            if (window.api?.zipCrackOffListeners) {
-                window.api.zipCrackOffListeners();
-            }
-        };
-    }, []);
-
+    const reset = () => { setFiles([]); setProgress({}); setFoundPassword(null); setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1, current: '' }); setCompletedOutputPath(null); setExtractCompletedPath(null); };
     const jobProgress = progress['current-job'];
-    const passwordStrength = getPasswordStrength(password);
-
-    const getFileIcon = (fileName) => {
-        const ext = fileName.split('.').pop().toLowerCase();
-        if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return { icon: 'folder_zip', color: 'text-[#2196F3]', bg: 'bg-[#E3F2FD] dark:bg-blue-900/30' };
-        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return { icon: 'image', color: 'text-[#4CAF50]', bg: 'bg-[#E8F5E9] dark:bg-green-900/30' };
-        if (['mp4', 'mkv', 'avi', 'mov'].includes(ext)) return { icon: 'movie', color: 'text-[#E53935]', bg: 'bg-[#FFEBEE] dark:bg-red-900/30' };
-        if (['mp3', 'wav', 'flac'].includes(ext)) return { icon: 'music_note', color: 'text-[#9C27B0]', bg: 'bg-[#F3E5F5] dark:bg-purple-900/30' };
-        if (['pdf'].includes(ext)) return { icon: 'picture_as_pdf', color: 'text-[#E53935]', bg: 'bg-[#FFEBEE] dark:bg-red-900/30' };
-        if (['doc', 'docx'].includes(ext)) return { icon: 'description', color: 'text-[#2196F3]', bg: 'bg-[#E3F2FD] dark:bg-blue-900/30' };
-        return { icon: 'draft', color: 'text-slate-400', bg: 'bg-slate-50 dark:bg-slate-800/50' };
-    };
-
     const modes = [
-        { id: 'compress', icon: 'folder_zip', label: 'Compress' },
-        { id: 'extract', icon: 'unarchive', label: 'Extract' },
-        { id: 'crack', icon: 'key', label: 'Crack Password' }
-    ];
-
-    const compressionLevels = [
-        { id: 'fast', label: 'Fast', desc: 'Quick, larger size', icon: 'bolt' },
-        { id: 'normal', label: 'Normal', desc: 'Balanced', icon: 'tune' },
-        { id: 'maximum', label: 'Maximum', desc: 'Best compression', icon: 'compress' }
-    ];
-
-    const formats = [
-        { id: 'zip', label: 'ZIP', color: 'text-[#4CAF50]' },
-        { id: '7z', label: '7Z', color: 'text-[#E53935]' },
-        { id: 'tar', label: 'TAR', color: 'text-[#FF9800]' },
-        { id: 'tar.gz', label: 'TAR.GZ', color: 'text-[#9C27B0]' }
+        { id: 'compress', label: 'Compress' },
+        { id: 'extract', label: 'Extract' },
+        { id: 'crack', label: 'Crack' }
     ];
 
     return (
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#fafbfc] dark:bg-[#0d1117]">
             {/* Header */}
             <div className="px-8 py-5 border-b border-slate-200/60 dark:border-slate-800/60 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
-                <div className="flex items-center justify-between">
+                <div className="max-w-5xl mx-auto flex items-center justify-between">
                     <div>
                         <h1 className="text-xl font-semibold text-slate-800 dark:text-white tracking-tight">File Compressor</h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                            {files.length === 0 ? 'Compress, extract, or crack archive passwords' : `${files.length} file${files.length > 1 ? 's' : ''} selected`}
+                            {mode === 'compress' ? 'Create compressed archives' : mode === 'extract' ? 'Extract files from archives' : 'Recover passwords from encrypted archives'}
                         </p>
                     </div>
-                    <div className="flex items-center gap-4">
-                        {/* Mode Selector */}
+                    <div className="flex items-center gap-3">
+                        {/* Quick Actions */}
+                        <button onClick={handleOpenFolder} 
+                            className="flex items-center gap-2 px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-[#2196F3] hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                            title="Open output folder">
+                            {Icons.folderOpen}
+                            <span>Open Folder</span>
+                        </button>
+                        {/* Mode Switch */}
                         <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
                             {modes.map(m => (
-                                <button key={m.id} onClick={() => { setMode(m.id); setFiles([]); setProgress({}); setFoundPassword(null); }} disabled={processing}
-                                    className={`px-3 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-1.5
-                                        ${mode === m.id ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
-                                    <span className="material-symbols-outlined text-lg">{m.icon}</span>
+                                <button key={m.id} onClick={() => setMode(m.id)} disabled={processing}
+                                    className={`px-5 py-2 text-sm font-medium rounded-lg transition-all ${mode === m.id 
+                                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' 
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
                                     {m.label}
                                 </button>
                             ))}
                         </div>
-                        {files.length > 0 && !processing && (
-                            <button onClick={() => { setFiles([]); setProgress({}); setFoundPassword(null); }}
-                                className="text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
-                                Clear all
-                            </button>
-                        )}
                     </div>
                 </div>
             </div>
 
             {/* Main Content */}
             <div className="flex-1 overflow-auto">
-                <div className="max-w-4xl mx-auto px-8 py-8">
-                    {files.length === 0 ? (
-                        /* Empty State - Drop Zone */
-                        <div className="space-y-6">
-                            <div 
-                                onClick={handleSelectFiles}
-                                onDragOver={handleDragOver}
-                                onDragLeave={handleDragLeave}
-                                onDrop={handleDrop}
-                                className={`rounded-2xl border-2 border-dashed p-12 cursor-pointer transition-all text-center
-                                    ${dragOver ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-slate-200 dark:border-slate-700 hover:border-primary/50 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-                            >
-                                <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                                    <span className="material-symbols-outlined text-slate-400 text-3xl">
-                                        {mode === 'compress' ? 'folder_zip' : mode === 'extract' ? 'unarchive' : 'lock'}
-                                    </span>
+                <div className="max-w-5xl mx-auto px-8 py-8">
+                    <div className="max-w-2xl mx-auto space-y-4">                    {files.length === 0 ? (
+                        <>
+                            {/* Drop Zone */}
+                            <div onClick={handleSelectFiles} onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
+                                className={`rounded-2xl border-2 border-dashed p-16 cursor-pointer transition-all text-center ${dragOver ? 'border-[#2196F3] bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-700 hover:border-[#2196F3]/50'}`}>
+                                <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[#2196F3]">
+                                    {Icons.upload}
                                 </div>
                                 <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">
                                     {mode === 'compress' ? 'Drop files to compress' : mode === 'extract' ? 'Drop archives to extract' : 'Drop encrypted archive'}
                                 </h3>
                                 <p className="text-slate-500 dark:text-slate-400 text-sm mb-5">or click to browse</p>
-                                <div className="flex gap-3 justify-center flex-wrap">
-                                    {mode === 'compress' && <>
-                                        <span className="text-[#2196F3] text-xs font-semibold">Any Files</span>
-                                        <span className="text-[#FF9800] text-xs font-semibold">Folders</span>
-                                    </>}
-                                    {mode === 'extract' && <>
-                                        <span className="text-[#4CAF50] text-xs font-semibold">ZIP</span>
-                                        <span className="text-[#9C27B0] text-xs font-semibold">RAR</span>
-                                        <span className="text-[#E53935] text-xs font-semibold">7Z</span>
-                                        <span className="text-[#FF9800] text-xs font-semibold">TAR</span>
-                                    </>}
-                                    {mode === 'crack' && <>
-                                        <span className="text-[#4CAF50] text-xs font-semibold">ZIP</span>
-                                        <span className="text-[#9C27B0] text-xs font-semibold">RAR</span>
-                                        <span className="text-[#E53935] text-xs font-semibold">7Z</span>
-                                    </>}
+                                <div className="flex justify-center gap-3">
+                                    {mode === 'crack' ? (
+                                        <>
+                                            <span className="px-3 py-1.5 text-[#2196F3] text-xs font-semibold">ZIP</span>
+                                            <span className="px-3 py-1.5 text-[#9C27B0] text-xs font-semibold">RAR</span>
+                                            <span className="px-3 py-1.5 text-[#FF9800] text-xs font-semibold">7Z</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="px-3 py-1.5 text-[#2196F3] text-xs font-semibold">ZIP</span>
+                                            <span className="px-3 py-1.5 text-[#9C27B0] text-xs font-semibold">7Z</span>
+                                            <span className="px-3 py-1.5 text-[#4CAF50] text-xs font-semibold">TAR.GZ</span>
+                                        </>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Features */}
-                            <div className="grid grid-cols-3 gap-4">
+                            {/* Feature Cards */}
+                            <div className="grid grid-cols-3 gap-4 mt-8">
                                 {(mode === 'crack' ? [
-                                    { icon: 'speed', title: 'Multi-threaded', desc: 'Parallel processing for speed' },
-                                    { icon: 'menu_book', title: 'Dictionary Attack', desc: 'Common password lists' },
-                                    { icon: 'grid_view', title: 'Brute Force', desc: 'Try all combinations' }
+                                    { icon: Icons.cpu, title: 'GPU Accelerated', desc: 'NVIDIA CUDA support' },
+                                    { icon: Icons.sparkles, title: '14M Dictionary', desc: 'Smart wordlist' },
+                                    { icon: Icons.bolt, title: '7-Layer Pipeline', desc: 'Multi-strategy attack' }
                                 ] : [
-                                    { icon: 'bolt', title: 'Fast Processing', desc: 'Optimized algorithms' },
-                                    { icon: 'folder_zip', title: 'Multiple Formats', desc: 'ZIP, RAR, 7Z, TAR' },
-                                    { icon: 'lock', title: 'AES-256 Encryption', desc: 'Password protection' }
-                                ]).map((item, i) => (
-                                    <div key={i} className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                                        <span className="material-symbols-outlined text-[#2196F3] text-xl mb-2 block">{item.icon}</span>
-                                        <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">{item.title}</h4>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</p>
+                                    { icon: Icons.bolt, title: 'Fast Processing', desc: 'Optimized compression' },
+                                    { icon: Icons.folder, title: 'Multiple Formats', desc: 'ZIP, RAR, 7Z support' },
+                                    { icon: Icons.shield, title: 'AES-256', desc: 'Strong encryption' }
+                                ]).map((f, i) => (
+                                    <div key={i} className="p-5 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                        <div className="text-[#2196F3] mb-3">{f.icon}</div>
+                                        <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">{f.title}</h4>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">{f.desc}</p>
                                     </div>
                                 ))}
                             </div>
-                        </div>
+                        </>
                     ) : (
-                        /* File List & Options */
-                        <div className="space-y-6">
-                            {/* Files */}
-                            <div className="space-y-2">
-                                {files.map((file, index) => {
-                                    const fileName = file.split(/[\\/]/).pop();
-                                    const fileStyle = getFileIcon(fileName);
-                                    return (
-                                        <div key={index} className="group p-4 rounded-xl border transition-all bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${fileStyle.bg}`}>
-                                                    <span className={`material-symbols-outlined text-2xl ${fileStyle.color}`}>{fileStyle.icon}</span>
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{fileName}</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Ready</p>
-                                                </div>
-                                                {!processing && (
-                                                    <button onClick={() => handleRemoveFile(index)}
-                                                        className="opacity-0 group-hover:opacity-100 p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all">
-                                                        <span className="material-symbols-outlined">close</span>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                        <div className="space-y-4">
+                            {/* File Card */}
+                            <div className="p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-[#E3F2FD] dark:bg-blue-900/30 flex items-center justify-center text-[#2196F3]">
+                                        {Icons.file}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-medium text-slate-800 dark:text-white truncate">{files[0]?.split(/[\\/]/).pop()}</p>
+                                        <p className="text-xs text-slate-500">{files.length > 1 ? `+${files.length - 1} more files` : 'Ready to process'}</p>
+                                    </div>
+                                    {!processing && (
+                                        <button onClick={() => setFiles(files.slice(1))} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors">
+                                            {Icons.close}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
-                            {/* Add More */}
-                            {!processing && mode !== 'crack' && (
-                                <button onClick={handleSelectFiles}
-                                    className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 hover:text-primary hover:border-primary/50 transition-all text-sm font-medium flex items-center justify-center gap-2">
-                                    <span className="material-symbols-outlined text-lg">add</span>
-                                    Add more files
-                                </button>
-                            )}
-
                             {/* Compress Options */}
-                            {mode === 'compress' && !processing && (
-                                <div className="space-y-4">
-                                    {/* Compression Level */}
-                                    <div className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                                        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Compression Level</h4>
-                                        <div className="grid grid-cols-3 gap-3">
-                                            {compressionLevels.map(level => (
-                                                <button key={level.id} onClick={() => setCompressionLevel(level.id)}
-                                                    className={`p-3 rounded-xl border text-left transition-all
-                                                        ${compressionLevel === level.id ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}>
-                                                    <span className={`material-symbols-outlined text-lg mb-1 block ${compressionLevel === level.id ? 'text-primary' : 'text-slate-400'}`}>{level.icon}</span>
-                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{level.label}</p>
-                                                    <p className="text-xs text-slate-500">{level.desc}</p>
-                                                </button>
+                            {mode === 'compress' && (
+                                <div className="p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-slate-600 dark:text-slate-400">Format</span>
+                                        <div className="flex gap-1">
+                                            {['zip', '7z', 'tar.gz'].map(fmt => (
+                                                <button key={fmt} onClick={() => setOutputFormat(fmt)} className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-all ${outputFormat === fmt ? 'bg-[#2196F3] text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}>{fmt.toUpperCase()}</button>
                                             ))}
                                         </div>
                                     </div>
-
-                                    {/* Advanced Options Toggle */}
-                                    <button onClick={() => setShowAdvanced(!showAdvanced)}
-                                        className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
-                                        <span className={`material-symbols-outlined text-lg transition-transform ${showAdvanced ? 'rotate-180' : ''}`}>expand_more</span>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-slate-600 dark:text-slate-400">Level</span>
+                                        <div className="flex gap-1">
+                                            {[{ id: 'fast', label: 'Fast' }, { id: 'normal', label: 'Normal' }, { id: 'maximum', label: 'Max' }].map(lvl => (
+                                                <button key={lvl.id} onClick={() => setCompressionLevel(lvl.id)} className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-all ${compressionLevel === lvl.id ? 'bg-[#2196F3] text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}>{lvl.label}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center gap-1 text-xs text-[#2196F3] font-medium">
+                                        <span className={`transition-transform ${showAdvanced ? 'rotate-180' : ''}`}>{Icons.chevronDown}</span>
                                         Advanced Options
                                     </button>
-
                                     {showAdvanced && (
-                                        <div className="space-y-4 pl-4 border-l-2 border-slate-200 dark:border-slate-700">
-                                            {/* Output Format */}
-                                            <div>
-                                                <h4 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">Output Format</h4>
-                                                <div className="flex gap-2">
-                                                    {formats.map(fmt => (
-                                                        <button key={fmt.id} onClick={() => setOutputFormat(fmt.id)}
-                                                            className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all
-                                                                ${outputFormat === fmt.id ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 dark:border-slate-700 ' + fmt.color}`}>
-                                                            {fmt.label}
-                                                        </button>
-                                                    ))}
+                                        <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm text-slate-600 dark:text-slate-400">Password Protection</span>
+                                                <button onClick={() => setUsePassword(!usePassword)} className={`w-10 h-5 rounded-full transition-all ${usePassword ? 'bg-[#2196F3]' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                                                    <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${usePassword ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                </button>
+                                            </div>
+                                            {usePassword && (
+                                                <div className="space-y-2">
+                                                    <div className="relative">
+                                                        <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password" className="w-full px-3 py-2 pr-10 text-sm rounded-lg bg-slate-100 dark:bg-slate-700 border-0 text-slate-800 dark:text-white placeholder-slate-400" />
+                                                        <button onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? Icons.eyeOff : Icons.eye}</button>
+                                                    </div>
+                                                    <input type={showPassword ? 'text' : 'password'} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Confirm password" className="w-full px-3 py-2 text-sm rounded-lg bg-slate-100 dark:bg-slate-700 border-0 text-slate-800 dark:text-white placeholder-slate-400" />
                                                 </div>
+                                            )}
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm text-slate-600 dark:text-slate-400">Split Archive</span>
+                                                <button onClick={() => setSplitArchive(!splitArchive)} className={`w-10 h-5 rounded-full transition-all ${splitArchive ? 'bg-[#2196F3]' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                                                    <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${splitArchive ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                </button>
                                             </div>
-
-                                            {/* Password Protection */}
-                                            <div>
-                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                    <input type="checkbox" checked={usePassword} onChange={e => setUsePassword(e.target.checked)}
-                                                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary" />
-                                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Password Protection</span>
-                                                </label>
-                                                {usePassword && (
-                                                    <div className="mt-3 space-y-2">
-                                                        <div className="relative">
-                                                            <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-                                                                placeholder="Enter password" className="w-full h-10 px-3 pr-10 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm" />
-                                                            <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600">
-                                                                <span className="material-symbols-outlined text-xl">{showPassword ? 'visibility_off' : 'visibility'}</span>
-                                                            </button>
-                                                        </div>
-                                                        <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
-                                                            placeholder="Confirm password" className="w-full h-10 px-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm" />
-                                                        {password && (
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                                                    <div className={`h-full ${passwordStrength.color} transition-all`} style={{ width: `${passwordStrength.level * 20}%` }}></div>
-                                                                </div>
-                                                                <span className="text-xs text-slate-500">{passwordStrength.text}</span>
-                                                            </div>
-                                                        )}
-                                                        {password && confirmPassword && password !== confirmPassword && (
-                                                            <p className="text-xs text-red-500">Passwords do not match</p>
-                                                        )}
-                                                    </div>
-                                                )}
+                                            {splitArchive && (
+                                                <div className="flex items-center gap-2">
+                                                    <input type="number" value={volumeSize} onChange={e => setVolumeSize(e.target.value)} min="1" className="w-20 px-3 py-2 text-sm rounded-lg bg-slate-100 dark:bg-slate-700 border-0 text-slate-800 dark:text-white" />
+                                                    <span className="text-xs text-slate-500">MB per volume</span>
+                                                </div>
+                                            )}
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm text-slate-600 dark:text-slate-400">Output Path</span>
+                                                <button onClick={handleSelectOutputPath} className="text-xs text-[#2196F3] hover:text-[#1976D2] font-medium">
+                                                    {outputPath ? 'Change' : 'Select'}
+                                                </button>
                                             </div>
-
-                                            {/* Split Archive */}
-                                            <div>
-                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                    <input type="checkbox" checked={splitArchive} onChange={e => setSplitArchive(e.target.checked)}
-                                                        className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary" />
-                                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Split into volumes</span>
-                                                </label>
-                                                {splitArchive && (
-                                                    <div className="mt-3 flex gap-2 flex-wrap">
-                                                        {['100', '500', '1024', '2048'].map(size => (
-                                                            <button key={size} onClick={() => setVolumeSize(size)}
-                                                                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all
-                                                                    ${volumeSize === size ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 dark:border-slate-700 text-slate-600'}`}>
-                                                                {size >= 1024 ? `${size/1024}GB` : `${size}MB`}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
+                                            {outputPath ? (
+                                                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">
+                                                    <span className="text-[#2196F3]">{Icons.folder}</span>
+                                                    <span className="text-xs text-slate-600 dark:text-slate-300 truncate flex-1" title={outputPath}>{outputPath}</span>
+                                                    <button onClick={() => { setOutputPath(''); localStorage.removeItem('compressOutputPath'); }} className="text-slate-400 hover:text-red-500">
+                                                        {Icons.close}
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-slate-400">Default: Downloads folder</p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
                             )}
 
                             {/* Extract Options */}
-                            {mode === 'extract' && !processing && (
-                                <div className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" checked={usePassword} onChange={e => setUsePassword(e.target.checked)}
-                                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary" />
-                                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Archive has password</span>
-                                    </label>
-                                    {usePassword && (
-                                        <div className="mt-3">
-                                            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                                                placeholder="Enter archive password" className="w-full h-10 px-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm" />
+                            {mode === 'extract' && (
+                                <div className="p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-4">
+                                    <button onClick={() => setShowExtractAdvanced(!showExtractAdvanced)} className="flex items-center gap-1 text-xs text-[#2196F3] font-medium">
+                                        <span className={`transition-transform ${showExtractAdvanced ? 'rotate-180' : ''}`}>{Icons.chevronDown}</span>
+                                        Advanced Options
+                                    </button>
+                                    {showExtractAdvanced && (
+                                        <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                                            {/* Password Input */}
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm text-slate-600 dark:text-slate-400">Password</span>
+                                            </div>
+                                            <div className="relative">
+                                                <input 
+                                                    type={showExtractPassword ? 'text' : 'password'} 
+                                                    value={extractPassword} 
+                                                    onChange={e => setExtractPassword(e.target.value)} 
+                                                    placeholder="Enter archive password to extract" 
+                                                    className="w-full px-3 py-2 pr-10 text-sm rounded-lg bg-slate-100 dark:bg-slate-700 border-0 text-slate-800 dark:text-white placeholder-slate-400" 
+                                                />
+                                                <button onClick={() => setShowExtractPassword(!showExtractPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
+                                                    {showExtractPassword ? Icons.eyeOff : Icons.eye}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-slate-400">Required only if archive is password-protected</p>
+                                            
+                                            {/* Output Path */}
+                                            <div className="flex items-center justify-between pt-2">
+                                                <span className="text-sm text-slate-600 dark:text-slate-400">Extract To</span>
+                                                <button onClick={handleSelectExtractOutputPath} className="text-xs text-[#2196F3] hover:text-[#1976D2] font-medium">
+                                                    {extractOutputPath ? 'Change' : 'Select'}
+                                                </button>
+                                            </div>
+                                            {extractOutputPath ? (
+                                                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">
+                                                    <span className="text-[#2196F3]">{Icons.folder}</span>
+                                                    <span className="text-xs text-slate-600 dark:text-slate-300 truncate flex-1" title={extractOutputPath}>{extractOutputPath}</span>
+                                                    <button onClick={() => { setExtractOutputPath(''); localStorage.removeItem('extractOutputPath'); }} className="text-slate-400 hover:text-red-500">
+                                                        {Icons.close}
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-slate-400">Default: Same folder as archive</p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -555,317 +475,228 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
 
                             {/* Crack Options */}
                             {mode === 'crack' && !processing && !foundPassword && (
-                                <div className="space-y-4">
-                                    {/* GPU Acceleration Toggle */}
-                                    <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-50 to-cyan-50 dark:from-emerald-900/20 dark:to-cyan-900/20 border border-emerald-200 dark:border-emerald-800">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
-                                                    <span className="material-symbols-outlined text-white text-xl">memory</span>
-                                                </div>
-                                                <div>
-                                                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">GPU Acceleration</h4>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                        {gpuAvailable ? 'Up to 1000x faster with GPU' : 'GPU not available'}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <label className="relative inline-flex items-center cursor-pointer">
-                                                <input type="checkbox" checked={useGpu} onChange={e => setUseGpu(e.target.checked)} 
-                                                    disabled={!gpuAvailable} className="sr-only peer" />
-                                                <div className={`w-11 h-6 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all
-                                                    ${gpuAvailable ? 'bg-slate-300 peer-checked:bg-emerald-500' : 'bg-slate-200 cursor-not-allowed'}`}></div>
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    {/* CPU Multi-Thread Toggle */}
-                                    <div className="p-4 rounded-xl bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 border border-orange-200 dark:border-orange-800">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-                                                    <span className="material-symbols-outlined text-white text-xl">developer_board</span>
-                                                </div>
-                                                <div>
-                                                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">CPU Multi-Thread</h4>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                        Use {cpuCores} CPU cores for parallel cracking
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <label className="relative inline-flex items-center cursor-pointer">
-                                                <input type="checkbox" checked={useCpuMultiThread} onChange={e => setUseCpuMultiThread(e.target.checked)} 
-                                                    className="sr-only peer" />
-                                                <div className="w-11 h-6 bg-slate-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                                        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Attack Mode</h4>
+                                <div className="p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-4">
+                                    {/* Attack Mode Cards */}
+                                    <div>
+                                        <span className="text-sm text-slate-600 dark:text-slate-400 mb-3 block">Attack Mode</span>
                                         <div className="grid grid-cols-2 gap-3">
-                                            {[
-                                                { id: 'dictionary', label: 'Smart Dictionary', desc: 'Common passwords + rules', icon: 'auto_awesome' },
-                                                { id: 'bruteforce', label: 'Smart Brute Force', desc: 'AI-optimized patterns', icon: 'psychology' }
-                                            ].map(attack => (
-                                                <button key={attack.id} onClick={() => setAttackMode(attack.id)}
-                                                    className={`p-3 rounded-xl border text-left transition-all
-                                                        ${attackMode === attack.id ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}>
-                                                    <span className={`material-symbols-outlined text-lg mb-1 block ${attackMode === attack.id ? 'text-primary' : 'text-slate-400'}`}>{attack.icon}</span>
-                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{attack.label}</p>
-                                                    <p className="text-xs text-slate-500">{attack.desc}</p>
-                                                </button>
-                                            ))}
+                                            <button onClick={() => setAttackMode('smart')}
+                                                className={`p-4 rounded-xl border-2 transition-all text-left ${attackMode === 'smart' 
+                                                    ? 'border-[#2196F3] bg-[#E3F2FD] dark:bg-blue-900/20' 
+                                                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className="text-[#2196F3]">{Icons.sparkles}</div>
+                                                    <span className="font-medium text-slate-800 dark:text-white">Smart</span>
+                                                </div>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">Auto 7-layer GPU pipeline</p>
+                                            </button>
+                                            <button onClick={() => setAttackMode('bruteforce')}
+                                                className={`p-4 rounded-xl border-2 transition-all text-left ${attackMode === 'bruteforce' 
+                                                    ? 'border-[#2196F3] bg-[#E3F2FD] dark:bg-blue-900/20' 
+                                                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className="text-[#2196F3]">{Icons.cpu}</div>
+                                                    <span className="font-medium text-slate-800 dark:text-white">Custom</span>
+                                                </div>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">Manual charset & length</p>
+                                            </button>
                                         </div>
                                     </div>
-
-                                    {/* Smart Attack Features Info */}
-                                    <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800">
-                                        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-blue-500">tips_and_updates</span>
-                                            Smart Attack Features
-                                        </h4>
-                                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-400">
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                                                Markov Chain optimization
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                                                200+ common passwords
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                                                Leet speak transforms
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                                                Date/keyboard patterns
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                                                Rule-based mutations
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                                                Multi-threaded CPU
-                                            </div>
-                                        </div>
-                                    </div>
-
+                                    
                                     {attackMode === 'bruteforce' && (
-                                        <div className="p-4 rounded-xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-4">
+                                        <>
                                             <div>
-                                                <h4 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">Character Set</h4>
+                                                <span className="text-sm text-slate-600 dark:text-slate-400 mb-2 block">Character Set</span>
                                                 <div className="flex flex-wrap gap-2">
-                                                    {[
-                                                        { id: 'lowercase', label: 'a-z' },
-                                                        { id: 'uppercase', label: 'A-Z' },
-                                                        { id: 'numbers', label: '0-9' },
-                                                        { id: 'special', label: '!@#$' }
-                                                    ].map(set => (
-                                                        <button key={set.id} onClick={() => toggleCharset(set.id)}
-                                                            className={`px-3 py-1.5 text-xs font-mono rounded-lg border transition-all
-                                                                ${charset.includes(set.id) ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 dark:border-slate-700 text-slate-600'}`}>
-                                                            {set.label}
+                                                    {[{ id: 'lowercase', label: 'a-z' }, { id: 'uppercase', label: 'A-Z' }, { id: 'numbers', label: '0-9' }, { id: 'special', label: '!@#$' }].map(c => (
+                                                        <button key={c.id} onClick={() => setCharset(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])} 
+                                                            className={`px-4 py-2 text-sm rounded-lg font-mono font-medium transition-all ${charset.includes(c.id) ? 'bg-[#2196F3] text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}>
+                                                            {c.label}
                                                         </button>
                                                     ))}
                                                 </div>
                                             </div>
                                             <div className="flex gap-4">
-                                                <div>
-                                                    <label className="text-xs text-slate-500 block mb-1">Min Length</label>
-                                                    <input type="number" value={minLength} onChange={e => setMinLength(parseInt(e.target.value))}
-                                                        className="w-20 h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm" min="1" max="16" />
+                                                <div className="flex-1">
+                                                    <span className="text-xs text-slate-500 mb-1 block">Min Length</span>
+                                                    <input type="number" value={minLength} onChange={e => setMinLength(Math.max(1, parseInt(e.target.value) || 1))} min="1" max="16" className="w-full px-3 py-2 text-sm rounded-lg bg-slate-100 dark:bg-slate-700 border-0 text-slate-800 dark:text-white" />
                                                 </div>
-                                                <div>
-                                                    <label className="text-xs text-slate-500 block mb-1">Max Length</label>
-                                                    <input type="number" value={maxLength} onChange={e => setMaxLength(parseInt(e.target.value))}
-                                                        className="w-20 h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-sm" min="1" max="16" />
+                                                <div className="flex-1">
+                                                    <span className="text-xs text-slate-500 mb-1 block">Max Length</span>
+                                                    <input type="number" value={maxLength} onChange={e => setMaxLength(Math.min(16, parseInt(e.target.value) || 8))} min="1" max="16" className="w-full px-3 py-2 text-sm rounded-lg bg-slate-100 dark:bg-slate-700 border-0 text-slate-800 dark:text-white" />
                                                 </div>
                                             </div>
+                                        </>
+                                    )}
+                                    
+                                    {/* GPU Status */}
+                                    {gpuAvailable && (
+                                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400">
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            <span className="text-sm font-medium">GPU Acceleration Ready</span>
                                         </div>
                                     )}
                                 </div>
                             )}
 
                             {/* Progress */}
-                            {mode !== 'crack' && jobProgress && (
-                                <div className={`p-4 rounded-xl border transition-all ${
-                                    jobProgress.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' :
-                                    jobProgress.status === 'error' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' :
-                                    'bg-primary/5 dark:bg-primary/10 border-primary/30'}`}>
+                            {processing && mode !== 'crack' && jobProgress && (
+                                <div className="p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                                     <div className="flex items-center justify-between mb-2">
-                                        <span className={`text-sm font-medium ${
-                                            jobProgress.status === 'completed' ? 'text-emerald-700 dark:text-emerald-400' :
-                                            jobProgress.status === 'error' ? 'text-red-700 dark:text-red-400' : 'text-primary'}`}>
-                                            {jobProgress.status === 'completed' ? '✓ Completed!' :
-                                             jobProgress.status === 'error' ? '✗ Failed' :
-                                             mode === 'compress' ? 'Compressing...' : 'Extracting...'}
-                                        </span>
-                                        {jobProgress.status !== 'completed' && jobProgress.status !== 'error' && (
-                                            <span className="text-xs font-semibold text-primary">{jobProgress.percent}%</span>
-                                        )}
+                                        <span className="text-sm text-slate-600 dark:text-slate-400">{jobProgress.status === 'completed' ? 'Completed' : 'Processing...'}</span>
+                                        <span className="text-sm font-medium text-[#2196F3]">{jobProgress.percent || 0}%</span>
                                     </div>
-                                    {jobProgress.status !== 'completed' && jobProgress.status !== 'error' && (
-                                        <div className="h-1.5 bg-primary/20 rounded-full overflow-hidden">
-                                            <div className="h-full bg-primary transition-all duration-300" style={{ width: `${jobProgress.percent}%` }}></div>
+                                    <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                                        <div className="h-full rounded-full bg-gradient-to-r from-[#2196F3] to-[#42A5F5] transition-all" style={{ width: `${jobProgress.percent || 0}%` }} />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Compression Complete */}
+                            {!processing && completedOutputPath && mode === 'compress' && (
+                                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white">
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                                         </div>
-                                    )}
-                                    {jobProgress.error && <p className="text-xs text-red-600 mt-2">{jobProgress.error}</p>}
-                                    {jobProgress.outputPath && <p className="text-xs text-slate-500 mt-2 truncate">Output: {jobProgress.outputPath}</p>}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-medium text-emerald-700 dark:text-emerald-300">Compression Complete!</p>
+                                            <p className="text-xs text-emerald-600 dark:text-emerald-400 truncate" title={completedOutputPath}>{completedOutputPath}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => window.api.openFolder(completedOutputPath)} 
+                                            className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2">
+                                            {Icons.folderOpen} Open Folder
+                                        </button>
+                                        <button onClick={reset} 
+                                            className="px-4 py-2 rounded-xl bg-emerald-100 dark:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 text-sm font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
+                                            New
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Extract Complete */}
+                            {!processing && extractCompletedPath && mode === 'extract' && (
+                                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white">
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-medium text-emerald-700 dark:text-emerald-300">Extraction Complete!</p>
+                                            <p className="text-xs text-emerald-600 dark:text-emerald-400 truncate" title={extractCompletedPath}>{extractCompletedPath}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => window.api.openFolder(extractCompletedPath)} 
+                                            className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2">
+                                            {Icons.folderOpen} Open Folder
+                                        </button>
+                                        <button onClick={reset} 
+                                            className="px-4 py-2 rounded-xl bg-emerald-100 dark:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 text-sm font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
+                                            New
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
                             {/* Crack Progress */}
-                            {mode === 'crack' && (processing || foundPassword || crackStats.status) && (
-                                <div className={`p-4 rounded-xl border transition-all ${
-                                    foundPassword ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' : 
-                                    crackStats.status === 'not_found' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' :
-                                    crackStats.status === 'error' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' :
-                                    'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/50'}`}>
-                                    {foundPassword ? (
-                                        <div className="text-center py-6">
-                                            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/30 animate-bounce">
-                                                <span className="material-symbols-outlined text-5xl text-white">key</span>
-                                            </div>
-                                            <h3 className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mb-3">🎉 Password Found!</h3>
-                                            <div className="relative inline-block group">
-                                                <p className="font-mono text-3xl font-bold text-emerald-700 dark:text-emerald-300 bg-gradient-to-r from-emerald-100 to-teal-100 dark:from-emerald-900/50 dark:to-teal-900/50 px-6 py-3 rounded-xl border-2 border-emerald-300 dark:border-emerald-700 shadow-inner select-all">
-                                                    {foundPassword}
-                                                </p>
-                                                <button 
-                                                    onClick={() => {
-                                                        navigator.clipboard.writeText(foundPassword);
-                                                        // 简单的复制反馈
-                                                        const btn = document.getElementById('copy-pwd-btn');
-                                                        if (btn) { btn.textContent = 'check'; setTimeout(() => btn.textContent = 'content_copy', 1500); }
-                                                    }}
-                                                    id="copy-pwd-btn"
-                                                    className="absolute -right-3 -top-3 w-8 h-8 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110"
-                                                    title="Copy password"
-                                                >
-                                                    <span className="material-symbols-outlined text-lg">content_copy</span>
-                                                </button>
-                                            </div>
-                                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-4">
-                                                Click the password to select, or use the copy button
-                                            </p>
-                                            <div className="mt-4 flex justify-center gap-2">
-                                                <span className="px-3 py-1 text-xs font-medium rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                                                    {crackStats.attempts?.toLocaleString() || 0} attempts
-                                                </span>
-                                                <span className="px-3 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                                                    {crackMethod || 'CPU'}
-                                                </span>
-                                            </div>
+                            {processing && mode === 'crack' && (
+                                <div className="p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-[#E3F2FD] dark:bg-blue-900/30 flex items-center justify-center text-[#2196F3] animate-pulse">
+                                            {Icons.key}
                                         </div>
-                                    ) : crackStats.status === 'not_found' ? (
-                                        <div className="text-center py-4">
-                                            <span className="material-symbols-outlined text-4xl text-amber-500 mb-2">search_off</span>
-                                            <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">Password Not Found</p>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">{crackStats.message}</p>
-                                            <p className="text-xs text-slate-400 mt-2">Try using Brute Force mode with more character sets</p>
+                                        <div className="flex-1">
+                                            <p className="font-medium text-slate-800 dark:text-white">Cracking in progress...</p>
+                                            <p className="text-xs text-slate-500">{crackMethod || 'Initializing'}</p>
                                         </div>
-                                    ) : crackStats.status === 'error' ? (
-                                        <div className="text-center py-4">
-                                            <span className="material-symbols-outlined text-4xl text-red-500 mb-2">error</span>
-                                            <p className="text-sm text-red-600 dark:text-red-400 mb-2">Error</p>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">{crackStats.error}</p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {/* Encryption Type & Method Info */}
-                                            {(encryptionInfo || crackMethod) && (
-                                                <div className="flex gap-2 justify-center flex-wrap mb-2">
-                                                    {encryptionInfo?.format && (
-                                                        <span className="px-2 py-1 text-xs font-medium rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                                            {encryptionInfo.format.toUpperCase()}
-                                                        </span>
-                                                    )}
-                                                    {encryptionInfo?.method && (
-                                                        <span className={`px-2 py-1 text-xs font-medium rounded-lg ${
-                                                            encryptionInfo.isZipCrypto ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                                            encryptionInfo.isRar5 || encryptionInfo.isRar3 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                                                            encryptionInfo.is7zAES ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
-                                                            'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                                                        }`}>
-                                                            {encryptionInfo.method}
-                                                        </span>
-                                                    )}
-                                                    {crackMethod && (
-                                                        <span className={`px-2 py-1 text-xs font-medium rounded-lg ${
-                                                            crackMethod.includes('GPU') ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                                                            crackMethod.includes('bkcrack') ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
-                                                            'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                                                        }`}>
-                                                            {crackMethod}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {/* Current Password Being Tried */}
-                                            <div className="text-center py-2">
-                                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Currently trying:</p>
-                                                <p className="font-mono text-lg text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-4 py-2 rounded-lg inline-block min-w-[120px]">
-                                                    {crackStats.current || '...'}
-                                                </p>
-                                            </div>
-                                            <div className="flex justify-between text-sm">
-                                                <span className="text-slate-600 dark:text-slate-400">Speed</span>
-                                                <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                                                    {crackStats.speed >= 1000000 ? `${(crackStats.speed / 1000000).toFixed(1)}M` :
-                                                     crackStats.speed >= 1000 ? `${(crackStats.speed / 1000).toFixed(1)}K` :
-                                                     crackStats.speed.toLocaleString()} /sec
-                                                </span>
-                                            </div>
-                                            <div className="flex justify-between text-sm">
-                                                <span className="text-slate-600 dark:text-slate-400">Attempts</span>
-                                                <span className="font-mono text-slate-700 dark:text-slate-300">{(crackStats.attempts || 0).toLocaleString()}</span>
-                                            </div>
-                                            {/* Progress info */}
-                                            {attackMode === 'dictionary' && (
-                                                <p className="text-xs text-slate-500 text-center">Dictionary mode - testing common passwords</p>
-                                            )}
-                                            {attackMode === 'bruteforce' && (
-                                                <p className="text-xs text-slate-500 text-center">
-                                                    Brute force: length {crackStats.currentLength || minLength} of {maxLength}
-                                                </p>
-                                            )}
-                                            {/* Animated progress indicator */}
-                                            <div className="h-1.5 bg-emerald-100 dark:bg-emerald-900/30 rounded-full overflow-hidden">
-                                                <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 animate-pulse" style={{ width: '100%' }}></div>
-                                            </div>
+                                    </div>
+                                    
+                                    {/* Current Password Display */}
+                                    {crackStats.current && (
+                                        <div className="px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Trying</p>
+                                            <p className="font-mono text-lg text-slate-800 dark:text-white truncate">{crackStats.current}</p>
                                         </div>
                                     )}
+                                    
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-center">
+                                            <p className="text-xl font-semibold text-slate-800 dark:text-white">{crackStats.speed?.toLocaleString() || 0}</p>
+                                            <p className="text-xs text-slate-500">per second</p>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-center">
+                                            <p className="text-xl font-semibold text-slate-800 dark:text-white">{crackStats.attempts?.toLocaleString() || 0}</p>
+                                            <p className="text-xs text-slate-500">attempts</p>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-center">
+                                            <p className="text-xl font-semibold text-slate-800 dark:text-white">{gpuAvailable ? 'GPU' : 'CPU'}</p>
+                                            <p className="text-xs text-slate-500">engine</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Password Found */}
+                            {foundPassword && (
+                                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                                    <div className="flex items-center gap-3 mb-4">
+                                        <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center text-white">
+                                            {Icons.unlock}
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Password Found!</p>
+                                            <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 font-mono">{foundPassword}</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => navigator.clipboard.writeText(foundPassword)} 
+                                        className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2">
+                                        {Icons.copy} Copy to Clipboard
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Not Found */}
+                            {crackStats.status === 'not_found' && !processing && (
+                                <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-center">
+                                    <p className="font-medium text-red-600 dark:text-red-400">Password not found</p>
+                                    <p className="text-sm text-red-500 mt-1">Try different attack settings</p>
                                 </div>
                             )}
 
                             {/* Action Buttons */}
                             {!foundPassword && (
-                                <div className="flex justify-end gap-3">
-                                    {/* Cancel Button - only show when processing crack */}
-                                    {processing && mode === 'crack' && (
-                                        <button onClick={handleCancelCrack}
-                                            className="px-6 py-2.5 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-all flex items-center gap-2">
-                                            <span className="material-symbols-outlined">stop</span>
-                                            Stop
+                                <div className="flex items-center justify-between">
+                                    {!processing && files.length > 0 && (
+                                        <button onClick={reset} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">
+                                            Clear all
                                         </button>
                                     )}
-                                    <button onClick={handleAction} disabled={processing || files.length === 0 || (mode === 'compress' && usePassword && password !== confirmPassword)}
-                                        className="px-6 py-2.5 bg-gradient-to-r from-[#2196F3] to-[#42A5F5] hover:from-[#1E88E5] hover:to-[#2196F3] text-white font-medium rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-                                        {processing ? (
-                                            <><span className="material-symbols-outlined animate-spin">progress_activity</span>
-                                            {mode === 'compress' ? 'Compressing...' : mode === 'extract' ? 'Extracting...' : 'Cracking...'}</>
+                                    <div className="flex items-center gap-3 ml-auto">
+                                        {!processing ? (
+                                            <>
+                                                <button onClick={handleSelectFiles} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-2">
+                                                    {Icons.plus} Add Files
+                                                </button>
+                                                <button onClick={handleAction} 
+                                                    className="px-6 py-2.5 bg-gradient-to-r from-[#2196F3] to-[#42A5F5] hover:from-[#1E88E5] hover:to-[#2196F3] text-white text-sm font-medium rounded-xl transition-all flex items-center gap-2">
+                                                    {mode === 'compress' ? 'Compress' : mode === 'extract' ? 'Extract' : 'Start Cracking'}
+                                                </button>
+                                            </>
                                         ) : (
-                                            <><span className="material-symbols-outlined">{mode === 'compress' ? 'folder_zip' : mode === 'extract' ? 'unarchive' : 'key'}</span>
-                                            {mode === 'compress' ? 'Compress Now' : mode === 'extract' ? 'Extract Now' : 'Start Cracking'}</>
+                                            <button onClick={handleCancel} className="px-6 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors flex items-center gap-2">
+                                                {Icons.stop} Stop
+                                            </button>
                                         )}
-                                    </button>
+                                    </div>
                                 </div>
                             )}
                         </div>
                     )}
+                    </div>
                 </div>
             </div>
         </div>

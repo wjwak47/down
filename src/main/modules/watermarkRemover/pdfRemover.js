@@ -1,5 +1,14 @@
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, rgb, degrees } from 'pdf-lib';
 import fs from 'fs';
+
+// Common watermark text patterns to detect and remove
+const WATERMARK_PATTERNS = [
+    'CamScanner', 'camscanner', 'CAMSCANNER',
+    '扫描全能王', 'CS扫描', 'Scanned by CamScanner',
+    '水印', '仅供参考', '机密', 'CONFIDENTIAL', 'DRAFT', 'SAMPLE',
+    'WATERMARK', 'DO NOT COPY', '内部资料', '版权所有',
+    'www.camscanner.com', 'Created by CamScanner'
+];
 
 /**
  * Remove text watermark from PDF
@@ -78,14 +87,14 @@ export const removePdfWatermarkAdvanced = async (inputPath, outputPath, options 
         const pages = pdfDoc.getPages();
         let removedCount = 0;
 
-        // Common watermark text patterns
-        const watermarkTexts = options.watermarkText ? [options.watermarkText] : [
-            '水印', '仅供参考', '机密', 'CONFIDENTIAL', 'DRAFT', 'SAMPLE',
-            'WATERMARK', 'DO NOT COPY', '内部资料', '版权所有'
-        ];
+        // Combine default patterns with user-provided text
+        const watermarkTexts = options.watermarkText 
+            ? [...WATERMARK_PATTERNS, options.watermarkText] 
+            : WATERMARK_PATTERNS;
 
         for (let i = 0; i < pages.length; i++) {
             const page = pages[i];
+            const { width, height } = page.getSize();
 
             try {
                 // Remove all annotations (which may include watermarks)
@@ -107,7 +116,8 @@ export const removePdfWatermarkAdvanced = async (inputPath, outputPath, options 
                                 const keyStr = key.toString().toLowerCase();
                                 // Check if it looks like a watermark by name
                                 if (keyStr.includes('watermark') || keyStr.includes('wm') ||
-                                    keyStr.includes('fm') || keyStr.includes('im')) {
+                                    keyStr.includes('fm') || keyStr.includes('im') ||
+                                    keyStr.includes('cam') || keyStr.includes('scan')) {
                                     try {
                                         xObjects.delete(key);
                                         removedCount++;
@@ -128,7 +138,8 @@ export const removePdfWatermarkAdvanced = async (inputPath, outputPath, options 
                             const entries = props.entries ? props.entries() : [];
                             for (const [key] of entries) {
                                 const keyStr = key.toString().toLowerCase();
-                                if (keyStr.includes('watermark') || keyStr.includes('wm')) {
+                                if (keyStr.includes('watermark') || keyStr.includes('wm') ||
+                                    keyStr.includes('cam') || keyStr.includes('scan')) {
                                     props.delete(key);
                                     removedCount++;
                                 }
@@ -139,11 +150,25 @@ export const removePdfWatermarkAdvanced = async (inputPath, outputPath, options 
                     }
                 }
 
-                // If cover mode is enabled, cover common watermark positions
-                if (options.coverMode) {
-                    const { width, height } = page.getSize();
+                // CamScanner watermark is usually at the bottom of the page
+                // Cover the bottom area where CamScanner typically places its watermark
+                // CamScanner watermark height is usually about 30-50 pixels
+                const camScannerWatermarkHeight = 45;
+                
+                // Cover bottom watermark (CamScanner style)
+                page.drawRectangle({
+                    x: 0,
+                    y: 0,
+                    width: width,
+                    height: camScannerWatermarkHeight,
+                    color: rgb(1, 1, 1),
+                    opacity: 1,
+                });
+                removedCount++;
 
-                    // Cover diagonal center (most common watermark position)
+                // Also check for diagonal watermarks in the center
+                if (options.coverMode || options.removeDiagonal) {
+                    // Cover diagonal center (common watermark position)
                     page.drawRectangle({
                         x: width * 0.2,
                         y: height * 0.35,

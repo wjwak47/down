@@ -75,6 +75,7 @@ function createWindow() {
         autoHideMenuBar: true,
         title: 'ProFlow Studio v1.1.2',
         center: true,
+        icon: join(__dirname, '../../build/icon.png'),
         ...(process.platform === 'linux' ? {} : {}),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
@@ -164,18 +165,72 @@ app.whenReady().then(() => {
             return;
         }
 
-        const videoId = req.url.slice(1);
-        const videoInfo = videoCache.get(videoId);
+        const resourceId = req.url.slice(1);
+        const resourceInfo = videoCache.get(resourceId);
 
-        if (!videoInfo) {
-            console.log('[Proxy] Not found:', videoId);
+        if (!resourceInfo) {
+            console.log('[Proxy] Not found:', resourceId);
             res.writeHead(404);
             res.end('Not found');
             return;
         }
 
-        console.log('[Proxy] Proxying:', videoInfo.url);
-        const videoUrl = videoInfo.url;
+        console.log('[Proxy] Proxying:', resourceInfo.url, resourceInfo.isImage ? '(image)' : '(video)');
+        const resourceUrl = resourceInfo.url;
+
+        // Handle image proxy (for Bilibili thumbnails)
+        if (resourceInfo.isImage) {
+            const imgProtocol = resourceUrl.startsWith('https') ? https : http;
+            const imgOptions = {
+                headers: resourceInfo.headers || {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': 'https://www.bilibili.com/'
+                }
+            };
+
+            imgProtocol.get(resourceUrl, imgOptions, (imgResponse) => {
+                console.log('[Proxy] Image response status:', imgResponse.statusCode);
+                
+                // Handle redirects
+                if (imgResponse.statusCode === 301 || imgResponse.statusCode === 302 || imgResponse.statusCode === 307) {
+                    const redirectUrl = imgResponse.headers.location;
+                    console.log('[Proxy] Image redirecting to:', redirectUrl);
+                    const redirectProto = redirectUrl.startsWith('https') ? https : http;
+                    redirectProto.get(redirectUrl, imgOptions, (finalRes) => {
+                        const headers = {
+                            'Content-Type': finalRes.headers['content-type'] || 'image/jpeg',
+                            'Access-Control-Allow-Origin': '*',
+                            'Cache-Control': 'public, max-age=86400'
+                        };
+                        if (finalRes.headers['content-length']) headers['Content-Length'] = finalRes.headers['content-length'];
+                        res.writeHead(finalRes.statusCode, headers);
+                        finalRes.pipe(res);
+                    }).on('error', (err) => {
+                        console.error('[Proxy] Image redirect error:', err);
+                        res.writeHead(500);
+                        res.end('Image redirect error');
+                    });
+                    return;
+                }
+
+                const headers = {
+                    'Content-Type': imgResponse.headers['content-type'] || 'image/jpeg',
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'public, max-age=86400'
+                };
+                if (imgResponse.headers['content-length']) headers['Content-Length'] = imgResponse.headers['content-length'];
+                res.writeHead(imgResponse.statusCode, headers);
+                imgResponse.pipe(res);
+            }).on('error', (err) => {
+                console.error('[Proxy] Image error:', err);
+                res.writeHead(500);
+                res.end('Image proxy error');
+            });
+            return;
+        }
+
+        // Handle video proxy (existing logic)
+        const videoUrl = resourceUrl;
 
         if (!videoUrl) {
             console.error('[Proxy] Error: Video URL is undefined');
@@ -187,7 +242,7 @@ app.whenReady().then(() => {
         const protocol = videoUrl.startsWith('https') ? https : http;
         const requestOptions = {
             headers: {
-                ...(videoInfo.headers || {
+                ...(resourceInfo.headers || {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 })
             }
@@ -362,8 +417,8 @@ app.whenReady().then(() => {
         }
     });
 
-    ipcMain.handle('get-video-info', async (_, url) => {
-        return await ytDlpService.getVideoInfo(url);
+    ipcMain.handle('get-video-info', async (_, url, options = {}) => {
+        return await ytDlpService.getVideoInfo(url, options);
     });
 
     ipcMain.handle('get-preview-video', async (_, videoInfo) => {
@@ -375,6 +430,28 @@ app.whenReady().then(() => {
         console.log('[Proxy] Caching video ID:', videoId);
         videoCache.set(videoId, videoInfo);
         return `http://127.0.0.1:18964/${videoId}`;
+    });
+
+    // Image proxy for Bilibili thumbnails (anti-hotlinking bypass)
+    ipcMain.handle('get-image-proxy-url', async (_, imageUrl) => {
+        if (!imageUrl) return null;
+        
+        // Only proxy Bilibili images (hdslb.com domain)
+        if (!imageUrl.includes('hdslb.com') && !imageUrl.includes('bilibili.com')) {
+            return imageUrl; // Return original URL for non-Bilibili images
+        }
+        
+        const imageId = 'img_' + Date.now().toString(36) + Math.random().toString(36).substr(2);
+        console.log('[Proxy] Caching image ID:', imageId, 'URL:', imageUrl);
+        videoCache.set(imageId, { 
+            url: imageUrl, 
+            isImage: true,
+            headers: {
+                'Referer': 'https://www.bilibili.com/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        });
+        return `http://127.0.0.1:18964/${imageId}`;
     });
 
     ipcMain.handle('get-subtitles-list', async (_, url) => {
@@ -394,8 +471,16 @@ app.whenReady().then(() => {
 
     ipcMain.on('download-video', (event, { url, options, id }) => {
         // Pass id to service
-        const child = ytDlpService.downloadVideo(url, options, id, (progress) => {
-            event.reply('download-progress', { id, progress });
+        const child = ytDlpService.downloadVideo(url, options, id, (progressData) => {
+            // progressData now contains: { progress, speed, downloadedSize, totalSize, eta }
+            event.reply('download-progress', { 
+                id, 
+                progress: progressData.progress || 0,
+                speed: progressData.speed || 0,
+                downloadedSize: progressData.downloadedSize || 0,
+                totalSize: progressData.totalSize || 0,
+                eta: progressData.eta || 0
+            });
         });
 
         child.on('close', (code) => {
@@ -405,12 +490,6 @@ app.whenReady().then(() => {
                 console.log(`[Main] Download ${id} closed due to pause, not sending completion event`);
                 return; // Don't send download-complete for paused downloads
             }
-
-            // Only send completion if not manually cancelled (cancelled ones are removed from map)
-            // But here we just report what happened.
-            // If code is null/SIGTERM, it might be pause/cancel.
-            // The frontend handles the status update based on user action, 
-            // but for natural completion/failure we send this.
 
             // Try to get output path from multiple sources
             let outputPath = null;
@@ -424,13 +503,73 @@ app.whenReady().then(() => {
                 // Fallback: construct expected path
                 const downloadDir = options.downloadDir || app.getPath('downloads');
                 console.log(`[Main] filePath unavailable, using download dir: ${downloadDir}`);
-                outputPath = downloadDir; // Will be used to open folder, not specific file
+                outputPath = downloadDir;
             }
 
-            event.reply('download-complete', { id, code, filePath: outputPath });
+            // Get actual file size and extension if file exists
+            let fileSize = 0;
+            let fileExt = options.audioOnly ? 'm4a' : 'mp4'; // Default based on download type
+            
+            if (outputPath) {
+                console.log(`[Main] Checking file at: ${outputPath}`);
+                console.log(`[Main] File exists: ${fs.existsSync(outputPath)}`);
+                
+                if (fs.existsSync(outputPath)) {
+                    try {
+                        const stats = fs.statSync(outputPath);
+                        // Check if it's a file (not a directory)
+                        if (stats.isFile()) {
+                            fileSize = stats.size;
+                            fileExt = require('path').extname(outputPath).slice(1).toLowerCase() || fileExt;
+                            console.log(`[Main] File size: ${fileSize} bytes, ext: ${fileExt}`);
+                        } else {
+                            console.log(`[Main] Path is a directory, not a file`);
+                        }
+                    } catch (e) {
+                        console.error(`[Main] Failed to get file stats:`, e);
+                    }
+                } else {
+                    // Try to find the file in the download directory
+                    const downloadDir = options.downloadDir || app.getPath('downloads');
+                    console.log(`[Main] File not found at outputPath, searching in: ${downloadDir}`);
+                    
+                    // Look for recently created files (within last 60 seconds)
+                    try {
+                        const files = fs.readdirSync(downloadDir);
+                        const now = Date.now();
+                        const recentFiles = files
+                            .map(f => {
+                                const fullPath = require('path').join(downloadDir, f);
+                                try {
+                                    const stat = fs.statSync(fullPath);
+                                    return { name: f, path: fullPath, mtime: stat.mtimeMs, size: stat.size, isFile: stat.isFile() };
+                                } catch {
+                                    return null;
+                                }
+                            })
+                            .filter(f => f && f.isFile && (now - f.mtime) < 60000 && /\.(mp4|webm|mkv|m4a|mp3)$/i.test(f.name))
+                            .sort((a, b) => b.mtime - a.mtime);
+                        
+                        if (recentFiles.length > 0) {
+                            const mostRecent = recentFiles[0];
+                            outputPath = mostRecent.path;
+                            fileSize = mostRecent.size;
+                            fileExt = require('path').extname(mostRecent.name).slice(1).toLowerCase();
+                            console.log(`[Main] Found recent file: ${outputPath}, size: ${fileSize}, ext: ${fileExt}`);
+                        }
+                    } catch (e) {
+                        console.error(`[Main] Failed to search download directory:`, e);
+                    }
+                }
+            }
 
-            // Don't auto-open folder - user can manually click "Open Folder" button
-            // This avoids encoding issues and gives user control
+            event.reply('download-complete', { 
+                id, 
+                code, 
+                filePath: outputPath,
+                fileSize,
+                fileExt
+            });
         });
     });
 
