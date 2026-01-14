@@ -15,16 +15,31 @@ console.log('[CrackWorker] Worker started, waiting for messages...');
 // Fast password verification using 7z test command
 function tryPasswordFast(archivePath, password, customPath) {
     return new Promise((resolve) => {
-        // 对于 RAR 文件，使用系统 7z（支持 RAR5）
         const fs = require('fs');
         const path = require('path');
+        const os = require('os');
         const ext = path.extname(archivePath).toLowerCase();
         const isRar = ext === '.rar';
-        const system7z = 'C:\\Program Files\\7-Zip\\7z.exe';
+        const isMac = os.platform() === 'darwin';
+        
         let zipPath = customPath || pathTo7zip;
         
-        // 如果是 RAR 且系统有 7z，使用系统 7z
-        if (isRar && fs.existsSync(system7z)) {
+        // Get system 7z path (cross-platform)
+        let system7z = null;
+        if (isMac) {
+            // Mac: check common homebrew paths
+            const brewPath = '/opt/homebrew/bin/7z';
+            const usrPath = '/usr/local/bin/7z';
+            if (fs.existsSync(brewPath)) system7z = brewPath;
+            else if (fs.existsSync(usrPath)) system7z = usrPath;
+        } else {
+            // Windows
+            const win7z = 'C:\\Program Files\\7-Zip\\7z.exe';
+            if (fs.existsSync(win7z)) system7z = win7z;
+        }
+        
+        // Use system 7z for RAR if available
+        if (isRar && system7z) {
             zipPath = system7z;
         }
         

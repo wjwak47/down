@@ -1,5 +1,23 @@
 export const changelog = [
     {
+        version: '1.1.4',
+        date: '2026-01-15',
+        changes: {
+            added: [
+                'Extract mode advanced options - password input and custom output path',
+                'Custom app icon (rocket design)'
+            ],
+            improved: [
+                'Simplified UI - removed search box, notifications, and user info',
+                'GPU settings now always enabled by default (removed toggle switches)',
+                'PDF watermark removal enhanced with CamScanner support'
+            ],
+            fixed: [
+                'Removed unused Eudic integration from Settings'
+            ]
+        }
+    },
+    {
         version: '1.1.3',
         date: '2026-01-11',
         changes: {

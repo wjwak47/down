@@ -19,9 +19,18 @@ import { smartPasswordGenerator, SMART_DICTIONARY, applyRules } from './smartCra
 const pathTo7zip = sevenBin.path7za;
 const crackSessions = new Map();
 const NUM_WORKERS = Math.max(1, os.cpus().length - 1);
+const isMac = process.platform === 'darwin';
+const isWindows = process.platform === 'win32';
 
-// ============ ��????????? ============
+// ============ Cross-platform tool paths ============
 function getHashcatPath() {
+    if (isMac) {
+        // Mac: hashcat is typically installed via homebrew or not available
+        // For now, return a path that won't exist - GPU cracking not supported on Mac
+        return !app.isPackaged 
+            ? path.join(process.cwd(), 'resources', 'hashcat-mac', 'hashcat')
+            : path.join(process.resourcesPath, 'hashcat-mac', 'hashcat');
+    }
     return !app.isPackaged 
         ? path.join(process.cwd(), 'resources', 'hashcat', 'hashcat-6.2.6', 'hashcat.exe')
         : path.join(process.resourcesPath, 'hashcat', 'hashcat-6.2.6', 'hashcat.exe');
@@ -32,6 +41,11 @@ function getHashcatDir() {
 }
 
 function getBkcrackPath() {
+    if (isMac) {
+        return !app.isPackaged 
+            ? path.join(process.cwd(), 'resources', 'bkcrack-mac', 'bkcrack')
+            : path.join(process.resourcesPath, 'bkcrack-mac', 'bkcrack');
+    }
     return !app.isPackaged 
         ? path.join(process.cwd(), 'resources', 'bkcrack', 'bkcrack.exe')
         : path.join(process.resourcesPath, 'bkcrack', 'bkcrack.exe');
@@ -42,6 +56,13 @@ function isHashcatAvailable() {
 }
 
 function getJohnToolPath(tool) {
+    if (isMac) {
+        // Mac version uses different tool names (no .exe)
+        const macTool = tool.replace('.exe', '');
+        return !app.isPackaged
+            ? path.join(process.cwd(), 'resources', 'john-mac', 'run', macTool)
+            : path.join(process.resourcesPath, 'john-mac', 'run', macTool);
+    }
     return !app.isPackaged
         ? path.join(process.cwd(), 'resources', 'john', 'john-1.9.0-jumbo-1-win64', 'run', tool)
         : path.join(process.resourcesPath, 'john', 'john-1.9.0-jumbo-1-win64', 'run', tool);
@@ -49,7 +70,9 @@ function getJohnToolPath(tool) {
 
 function isJohnToolAvailable(format) {
     try {
-        const toolMap = { 'zip': 'zip2john.exe', 'rar': 'rar2john.exe', '7z': '7z2hashcat64-2.0.exe' };
+        const toolMap = isMac 
+            ? { 'zip': 'zip2john', 'rar': 'rar2john', '7z': '7z2hashcat' }
+            : { 'zip': 'zip2john.exe', 'rar': 'rar2john.exe', '7z': '7z2hashcat64-2.0.exe' };
         const tool = toolMap[format];
         if (!tool) return false;
         return fs.existsSync(getJohnToolPath(tool));
@@ -60,14 +83,31 @@ function isBkcrackAvailable() {
     try { return fs.existsSync(getBkcrackPath()); } catch (e) { return false; }
 }
 
-// ============ ?????????? ============
+// Get system 7z path (cross-platform)
+function getSystem7zPath() {
+    if (isMac) {
+        // Mac: check common homebrew paths
+        const brewPath = '/opt/homebrew/bin/7z';
+        const usrPath = '/usr/local/bin/7z';
+        if (fs.existsSync(brewPath)) return brewPath;
+        if (fs.existsSync(usrPath)) return usrPath;
+        return null;
+    }
+    // Windows
+    const system7z = 'C:\\Program Files\\7-Zip\\7z.exe';
+    if (fs.existsSync(system7z)) return system7z;
+    return null;
+}
+
+// ============ Encryption Detection ============
 async function detectEncryption(archivePath) {
     return new Promise((resolve) => {
-        // ???? RAR ?????????????? 7z????? RAR5??
         const ext = path.extname(archivePath).toLowerCase();
         const isRar = ext === '.rar';
-        const system7z = 'C:\\Program Files\\7-Zip\\7z.exe';
-        const use7z = isRar && fs.existsSync(system7z) ? system7z : pathTo7zip;
+        
+        // Use system 7z for RAR if available, otherwise use bundled 7zip-bin
+        const system7z = getSystem7zPath();
+        const use7z = (isRar && system7z) ? system7z : pathTo7zip;
         
         const proc = spawn(use7z, ['l', '-slt', '-p', archivePath], { windowsHide: true });
         let output = '';
@@ -75,7 +115,7 @@ async function detectEncryption(archivePath) {
         proc.stderr.on('data', (data) => { output += data.toString(); });
         
         proc.on('close', () => {
-            // ???????????
+            // File type detection
             const isZip = ext === '.zip';
             const is7z = ext === '.7z';
             
@@ -208,14 +248,15 @@ function getKnownPlaintext(filename) {
     return FILE_SIGNATURES[ext] || null;
 }
 
-// ============ ?????????? ============
+// ============ Password Testing ============
 function tryPasswordFast(archivePath, password) {
     return new Promise((resolve) => {
-        // ???? RAR ?????????? 7z????? RAR5??
         const ext = path.extname(archivePath).toLowerCase();
         const isRar = ext === '.rar';
-        const system7z = 'C:\\Program Files\\7-Zip\\7z.exe';
-        const use7z = isRar && fs.existsSync(system7z) ? system7z : pathTo7zip;
+        
+        // Use system 7z for RAR if available, otherwise use bundled 7zip-bin
+        const system7z = getSystem7zPath();
+        const use7z = (isRar && system7z) ? system7z : pathTo7zip;
         
         const proc = spawn(use7z, ['t', '-p' + password, '-y', archivePath], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         let resolved = false;
@@ -427,13 +468,13 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
         }
     });
 }
-// ============ Hash ??? ============
-// ============ Hash ??? (???????) ============
-
+// ============ Hash Extraction ============
+// ============ Hash Extraction (Cross-platform) ============
 
 function extractZipHash(archivePath) {
     return new Promise((resolve, reject) => {
-        const zip2johnPath = getJohnToolPath('zip2john.exe');
+        const toolName = isMac ? 'zip2john' : 'zip2john.exe';
+        const zip2johnPath = getJohnToolPath(toolName);
         if (!fs.existsSync(zip2johnPath)) { reject(new Error('zip2john not found')); return; }
         const proc = spawn(zip2johnPath, [archivePath], { windowsHide: true });
         let output = '', error = '';
@@ -452,7 +493,8 @@ function extractZipHash(archivePath) {
 
 function extractRarHash(archivePath) {
     return new Promise((resolve, reject) => {
-        const rar2johnPath = getJohnToolPath('rar2john.exe');
+        const toolName = isMac ? 'rar2john' : 'rar2john.exe';
+        const rar2johnPath = getJohnToolPath(toolName);
         if (!fs.existsSync(rar2johnPath)) { reject(new Error('rar2john not found')); return; }
         const proc = spawn(rar2johnPath, [archivePath], { windowsHide: true });
         let output = '', error = '';
@@ -472,7 +514,8 @@ function extractRarHash(archivePath) {
 
 function extract7zHash(archivePath) {
     return new Promise((resolve, reject) => {
-        const sevenZ2johnPath = getJohnToolPath('7z2hashcat64-2.0.exe');
+        const toolName = isMac ? '7z2hashcat' : '7z2hashcat64-2.0.exe';
+        const sevenZ2johnPath = getJohnToolPath(toolName);
         if (!fs.existsSync(sevenZ2johnPath)) { reject(new Error('7z2hashcat not found')); return; }
         const proc = spawn(sevenZ2johnPath, [archivePath], { windowsHide: true });
         let output = '', error = '';
@@ -493,8 +536,12 @@ function extract7zHash(archivePath) {
 async function extractHash(archivePath, encryption) {
     const ext = path.extname(archivePath).toLowerCase();
     
-    // ??? john ??????????
-    const toolMap = {
+    // Cross-platform tool mapping
+    const toolMap = isMac ? {
+        '.zip': 'zip2john',
+        '.rar': 'rar2john',
+        '.7z': '7z2hashcat'
+    } : {
         '.zip': 'zip2john.exe',
         '.rar': 'rar2john.exe',
         '.7z': '7z2hashcat64-2.0.exe'

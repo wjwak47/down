@@ -159,11 +159,16 @@ export async function extract7zHashNative(archivePath) {
 }
 
 /**
- * Check if John tools are available
+ * Check if John tools are available (cross-platform)
  */
 export function checkJohnTools(resourcesPath) {
-    const tools = ['zip2john.exe', 'rar2john.exe', '7z2hashcat64-2.0.exe'];
-    const johnPath = path.join(resourcesPath, 'john');
+    const isMac = process.platform === 'darwin';
+    const tools = isMac 
+        ? ['zip2john', 'rar2john', '7z2hashcat']
+        : ['zip2john.exe', 'rar2john.exe', '7z2hashcat64-2.0.exe'];
+    const johnPath = isMac 
+        ? path.join(resourcesPath, 'john-mac', 'run')
+        : path.join(resourcesPath, 'john');
     
     const available = {};
     for (const tool of tools) {
