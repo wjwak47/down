@@ -821,14 +821,28 @@ async function runKeyboardAttack(hashFile, outFile, hashMode, event, id, session
 }
 // ============ Phase 6: 短密码暴力破解 ============
 async function runShortBruteforce(hashFile, outFile, hashMode, event, id, session, previousAttempts, options = {}) {
-    session.currentPhase = 6;
+    session.currentPhase = 1; // Now Phase 1
     
-    // Use user settings if provided, otherwise use defaults
-    const { charset, minLength, maxLength } = options;
-    const minLen = minLength || 1;
-    const maxLen = Math.min(maxLength || 6, 10); // GPU max 10 chars
+    // IMPORTANT: In smart mode, always test 1-4 chars first (fast)
+    // User settings (minLength/maxLength) are only used in pure bruteforce mode
+    const isSmartMode = options.mode !== 'bruteforce';
+    
+    let minLen, maxLen;
+    if (isSmartMode) {
+        // Smart mode: Force 1-4 chars (very fast, catches simple passwords)
+        minLen = 1;
+        maxLen = 4;
+        console.log('[Crack] Smart mode: Testing short passwords (1-4 chars) first');
+    } else {
+        // Pure bruteforce mode: Use user settings
+        const { minLength, maxLength } = options;
+        minLen = minLength || 1;
+        maxLen = Math.min(maxLength || 6, 10); // GPU max 10 chars
+        console.log('[Crack] Bruteforce mode: Using user settings (', minLen, '-', maxLen, 'chars)');
+    }
     
     // Build hashcat mask based on user charset selection
+    const { charset } = options;
     let maskChar = '?a'; // default: all printable
     if (charset) {
         const hasLower = charset.includes('abcdefghijklmnopqrstuvwxyz'.charAt(0));
@@ -863,13 +877,14 @@ async function runShortBruteforce(hashFile, outFile, hashMode, event, id, sessio
         args = ['-a', '3', '--increment', '--increment-min=' + minLen, '--increment-max=' + maxLen, mask];
     }
     
-    const charsetDesc = charset ? charset.substring(0, 20) + (charset.length > 20 ? '...' : '') : 'default';
-    event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: `Bruteforce (${minLen}-${maxLen} chars, ${charsetDesc})...`, method: 'Hashcat GPU Bruteforce' });
+    const charsetDesc = charset ? charset.substring(0, 20) + (charset.length > 20 ? '...' : '') : 'all chars';
+    const modeDesc = isSmartMode ? 'Short Password Test' : 'User Bruteforce';
+    event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: `${modeDesc} (${minLen}-${maxLen} chars, ${charsetDesc})...`, method: 'Hashcat GPU Bruteforce' });
     
-    console.log('[Crack] Bruteforce with user settings - charset:', charsetDesc, 'length:', minLen, '-', maxLen);
+    console.log('[Crack]', modeDesc, '- charset:', charsetDesc, 'length:', minLen, '-', maxLen);
     console.log('[Crack] Hashcat args:', args.join(' '));
     
-    return runHashcatPhase(hashFile, outFile, hashMode, args, 'User Bruteforce', event, id, session, previousAttempts);
+    return runHashcatPhase(hashFile, outFile, hashMode, args, modeDesc, event, id, session, previousAttempts);
 }
 
 
