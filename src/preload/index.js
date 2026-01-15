@@ -70,11 +70,13 @@ const api = {
     onZipCrackProgress: (callback) => ipcRenderer.on('zip:crack-progress', (_, data) => callback(data)),
     onZipCrackResult: (callback) => ipcRenderer.on('zip:crack-complete', (_, data) => callback(data)),
     onZipCrackEncryption: (callback) => ipcRenderer.on('zip:crack-encryption', (_, data) => callback(data)),
+    onZipCrackStopped: (callback) => ipcRenderer.on('zip:crack-stopped', (_, data) => callback(data)),
     zipCrackOffListeners: () => {
         ipcRenderer.removeAllListeners('zip:crack-started');
         ipcRenderer.removeAllListeners('zip:crack-progress');
         ipcRenderer.removeAllListeners('zip:crack-complete');
         ipcRenderer.removeAllListeners('zip:crack-encryption');
+        ipcRenderer.removeAllListeners('zip:crack-stopped');
     },
 
     // GPU Detection and Settings API

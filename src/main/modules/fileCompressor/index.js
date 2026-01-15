@@ -15,6 +15,7 @@ import archiverZipEncrypted from 'archiver-zip-encrypted';
 archiver.registerFormat('zip-encrypted', archiverZipEncrypted);
 
 import { smartPasswordGenerator, SMART_DICTIONARY, applyRules } from './smartCracker.js';
+import BatchTestManager from './batchTestManager.js';
 
 const pathTo7zip = sevenBin.path7za;
 const crackSessions = new Map();
@@ -275,19 +276,55 @@ function generatePasswordBatch(charset, length, startIdx, batchSize) {
     return passwords;
 }
 
-// ============ CPU ???????? ============
+// ============ CPU ???????? (使用批量测试优化) ============
 async function crackWithCPU(archivePath, options, event, id, session, startTime) {
     const { mode, charset, minLength, maxLength, dictionaryPath } = options;
     let totalAttempts = 0, found = null, currentLength = minLength || 1;
+    
+    // 创建批量测试管理器
+    const batchManager = new BatchTestManager(100);
+    const system7z = getSystem7zPath();
+    
     const testBatch = async (passwords) => {
         for (const pwd of passwords) {
             if (!session.active || found) return;
-            totalAttempts++;
-            if (totalAttempts % 10 === 0) {
+            
+            // 添加密码到批量管理器
+            batchManager.addPassword(pwd);
+            
+            // 当批次满时，执行批量测试
+            if (batchManager.shouldTest()) {
+                const result = await batchManager.testBatch(archivePath, system7z);
+                totalAttempts += result.tested;
+                
+                if (result.success) {
+                    found = result.password;
+                    return;
+                }
+                
+                // 更新进度
                 const elapsed = (Date.now() - startTime) / 1000;
-                event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: elapsed > 0 ? Math.round(totalAttempts / elapsed) : 0, current: pwd, currentLength, method: 'CPU Single' });
+                event.reply('zip:crack-progress', { 
+                    id, 
+                    attempts: totalAttempts, 
+                    speed: elapsed > 0 ? Math.round(totalAttempts / elapsed) : 0, 
+                    current: pwd, 
+                    currentLength, 
+                    method: 'CPU Batch' 
+                });
+                
+                // 让出事件循环，防止 UI 冻结
+                await new Promise(resolve => setImmediate(resolve));
             }
-            if (await tryPasswordFast(archivePath, pwd)) { found = pwd; return; }
+        }
+        
+        // 测试剩余的密码
+        if (!found && batchManager.getQueueSize() > 0) {
+            const result = await batchManager.flush(archivePath, system7z);
+            totalAttempts += result.tested;
+            if (result.success) {
+                found = result.password;
+            }
         }
     };
     if (mode === 'dictionary') {
@@ -567,13 +604,13 @@ async function extractHash(archivePath, encryption) {
         throw err;
     }
 }
-// ============ GPU ������ˮ������ ============
+// ============ GPU 攻击阶段顺序（已优化：键盘模式提前到Phase 2） ============
 const GPU_ATTACK_PHASES = {
     1: { name: 'Dictionary', method: 'Hashcat GPU Dictionary', description: 'Built-in Dictionary' },
-    2: { name: 'Rule', method: 'Hashcat GPU Rule Attack', description: 'Rule Transform' },
-    3: { name: 'Mask', method: 'Hashcat GPU Smart Mask', description: 'Smart Mask' },
-    4: { name: 'Hybrid', method: 'Hashcat GPU Hybrid', description: 'Hybrid Attack' },
-    5: { name: 'Keyboard', method: 'Hashcat GPU Keyboard', description: 'Keyboard Patterns' },
+    2: { name: 'Keyboard', method: 'Hashcat GPU Keyboard', description: 'Keyboard Patterns' },
+    3: { name: 'Rule', method: 'Hashcat GPU Rule Attack', description: 'Rule Transform' },
+    4: { name: 'Mask', method: 'Hashcat GPU Smart Mask', description: 'Smart Mask' },
+    5: { name: 'Hybrid', method: 'Hashcat GPU Hybrid', description: 'Hybrid Attack' },
     6: { name: 'Bruteforce', method: 'Hashcat GPU Bruteforce', description: 'Short Bruteforce' },
     7: { name: 'CPU', method: 'CPU Smart Dictionary', description: 'CPU Smart Dict' }
 };
@@ -674,7 +711,7 @@ async function runHashcatPhase(hashFile, outFile, hashMode, args, phaseName, eve
     });
 }
 
-// ============ Phase 2: ���򹥻� ============
+// ============ Phase 3: 规则攻击 ============
 async function runRuleAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
     const hashcatDir = getHashcatDir();
     const wordlist = path.join(hashcatDir, 'combined_wordlist.txt');
@@ -685,16 +722,16 @@ async function runRuleAttack(hashFile, outFile, hashMode, event, id, session, pr
         return { found: null, attempts: previousAttempts, exhausted: true };
     }
     
-    session.currentPhase = 2;
+    session.currentPhase = 3;
     event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: 'Starting rule attack...', method: 'Hashcat GPU Rule Attack' });
     
     const args = ['-a', '0', '-r', rulePath, wordlist];
     return runHashcatPhase(hashFile, outFile, hashMode, args, 'Rule Attack', event, id, session, previousAttempts);
 }
 
-// ============ Phase 3: �������빥�� ============
+// ============ Phase 4: 智能掩码攻击 ============
 async function runMaskAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
-    session.currentPhase = 3;
+    session.currentPhase = 4;
     let totalAttempts = previousAttempts;
     
     for (const maskConfig of SMART_MASKS) {
@@ -712,12 +749,12 @@ async function runMaskAttack(hashFile, outFile, hashMode, event, id, session, pr
     return { found: null, attempts: totalAttempts, exhausted: true };
 }
 
-// ============ Phase 4: ��Ϲ��� ============
+// ============ Phase 5: 混合攻击 ============
 async function runHybridAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
     const hashcatDir = getHashcatDir();
     const wordlist = path.join(hashcatDir, 'combined_wordlist.txt');
     
-    session.currentPhase = 4;
+    session.currentPhase = 5;
     let totalAttempts = previousAttempts;
     
     // Mode 6: wordlist + mask (word + digits)
@@ -748,10 +785,10 @@ async function runHybridAttack(hashFile, outFile, hashMode, event, id, session, 
 }
 
 
-// ============ Phase 5: ����ģʽ���� ============
+// ============ Phase 2: 键盘模式攻击（已优化到Phase 2） ============
 async function runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
     const hashcatDir = getHashcatDir();
-    session.currentPhase = 5;
+    session.currentPhase = 2;
     
     // ������ʱ����ģʽ�ֵ�
     const keyboardDict = path.join(hashcatDir, 'keyboard_patterns.txt');
@@ -782,7 +819,7 @@ async function runKeyboardAttack(hashFile, outFile, hashMode, event, id, session
     
     return result;
 }
-// ============ Phase 5: �����뱩�� ============
+// ============ Phase 6: 短密码暴力破解 ============
 async function runShortBruteforce(hashFile, outFile, hashMode, event, id, session, previousAttempts, options = {}) {
     session.currentPhase = 6;
     
@@ -1030,9 +1067,21 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
             console.log('[Crack] Skipping Phase 1 (Dictionary) - Bruteforce mode selected');
         }
 
-        // ========== Phase 2: Rule Attack (skip in bruteforce mode) ==========
+        // ========== Phase 2: 键盘模式攻击（优化：提前测试常见键盘密码） ==========
+        if (session.active) {
+            console.log('[Crack] Phase 2: Keyboard Patterns Attack (Optimized - moved earlier)');
+            const result = await runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+            totalAttempts = result.attempts;
+            
+            if (result.found) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return { found: result.found, attempts: totalAttempts };
+            }
+        }
+
+        // ========== Phase 3: 规则攻击 (skip in bruteforce mode) ==========
         if (session.active && !isBruteforceMode) {
-            console.log('[Crack] Phase 2: Rule Attack');
+            console.log('[Crack] Phase 3: Rule Attack');
             const result = await runRuleAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
 
@@ -1041,12 +1090,12 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
                 return { found: result.found, attempts: totalAttempts };
             }
         } else if (isBruteforceMode) {
-            console.log('[Crack] Skipping Phase 2 (Rule) - Bruteforce mode selected');
+            console.log('[Crack] Skipping Phase 3 (Rule) - Bruteforce mode selected');
         }
 
-        // ========== Phase 3: �������빥�� ==========
+        // ========== Phase 4: 智能掩码攻击 ==========
         if (session.active) {
-            console.log('[Crack] Phase 3: Smart Mask Attack');
+            console.log('[Crack] Phase 4: Smart Mask Attack');
             const result = await runMaskAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
@@ -1056,9 +1105,9 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
             }
         }
 
-        // ========== Phase 4: ��Ϲ��� ==========
+        // ========== Phase 5: 混合攻击 ==========
         if (session.active && !isBruteforceMode) {
-            console.log('[Crack] Phase 4: Hybrid Attack');
+            console.log('[Crack] Phase 5: Hybrid Attack');
             const result = await runHybridAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
@@ -1067,19 +1116,7 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
                 return { found: result.found, attempts: totalAttempts };
             }
         } else if (isBruteforceMode) {
-            console.log('[Crack] Skipping Phase 4 (Hybrid) - Bruteforce mode selected');
-        }
-
-        // ========== Phase 5: ����ģʽ���� ==========
-        if (session.active) {
-            console.log('[Crack] Phase 5: Keyboard Patterns Attack');
-            const result = await runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
-            totalAttempts = result.attempts;
-            
-            if (result.found) {
-                fs.rmSync(tempDir, { recursive: true, force: true });
-                return { found: result.found, attempts: totalAttempts };
-            }
+            console.log('[Crack] Skipping Phase 5 (Hybrid) - Bruteforce mode selected');
         }
 
         // ========== Phase 6: �����뱩�� ==========
@@ -1484,8 +1521,48 @@ export const registerFileCompressor = () => {
         const session = crackSessions.get(id);
         if (session) {
             session.active = false;
-            if (session.process) { try { session.process.kill(); } catch(e) {} }
-            if (session.cleanup) { try { session.cleanup(); } catch(e) {} }
+            
+            // 立即发送停止确认事件 - 这样UI可以立即响应
+            event.reply('zip:crack-stopped', { id });
+            console.log('[Crack] Sent crack-stopped event to renderer');
+            
+            // 然后清理进程和workers
+            if (session.process) { 
+                try { 
+                    console.log('[Crack] Killing process...');
+                    session.process.kill('SIGTERM');
+                    // 如果 SIGTERM 没有工作，2 秒后用 SIGKILL
+                    setTimeout(() => {
+                        try { 
+                            if (session.process) {
+                                session.process.kill('SIGKILL'); 
+                            }
+                        } catch(e) {
+                            console.log('[Crack] SIGKILL error:', e.message);
+                        }
+                    }, 2000);
+                } catch(e) {
+                    console.log('[Crack] Kill error:', e.message);
+                } 
+            }
+            
+            // 清理 workers
+            if (session.cleanup) { 
+                try { 
+                    console.log('[Crack] Cleaning up workers...');
+                    session.cleanup(); 
+                } catch(e) {
+                    console.log('[Crack] Cleanup error:', e.message);
+                } 
+            }
+            
+            // 从会话中移除
+            crackSessions.delete(id);
+            console.log('[Crack] Session cleaned up');
+        } else {
+            console.log('[Crack] No session found for id:', id);
+            // 即使没有会话，也发送停止事件
+            event.reply('zip:crack-stopped', { id });
         }
     });
 };

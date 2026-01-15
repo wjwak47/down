@@ -135,6 +135,16 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
             else if (error && error !== 'Cancelled') setCrackStats(prev => ({ ...prev, error, status: 'error' }));
             else if (!success && !error) setCrackStats(prev => ({ ...prev, status: 'not_found' }));
         });
+        // Listen for stop confirmation
+        const handleStopped = ({ id }) => {
+            console.log('[FileCompressor] Crack stopped:', id);
+            setProcessing(false);
+            setCrackJobId(null);
+            setCrackStats(prev => ({ ...prev, status: 'stopped' }));
+        };
+        if (window.api.onZipCrackStopped) {
+            window.api.onZipCrackStopped(handleStopped);
+        }
         return () => window.api?.zipCrackOffListeners?.();
     }, []);
 
@@ -228,13 +238,16 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
     };
     const handleCancel = () => {
         if (mode === 'crack' && crackJobId) { 
-            window.api?.zipCrackStop?.(crackJobId); 
-            setCrackJobId(null); 
-            setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength, current: '' }); 
+            // Don't immediately set processing to false - wait for the stopped event
+            console.log('[FileCompressor] Requesting stop for job:', crackJobId);
+            window.api?.zipCrackStop?.(crackJobId);
+            // Show stopping status
+            setCrackStats(prev => ({ ...prev, current: 'Stopping...', status: 'stopping' }));
+        } else {
+            // For compress/extract, just reset the state (the operation will complete in background)
+            setProcessing(false);
+            setProgress({});
         }
-        // For compress/extract, just reset the state (the operation will complete in background)
-        setProcessing(false);
-        setProgress({});
     };
     const reset = () => { setFiles([]); setProgress({}); setFoundPassword(null); setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1, current: '' }); setCompletedOutputPath(null); setExtractCompletedPath(null); };
     const jobProgress = progress['current-job'];
