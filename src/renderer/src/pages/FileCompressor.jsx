@@ -177,6 +177,12 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
     const handleSelectFiles = async () => {
         const paths = mode === 'compress' ? await window.api.zipSelectFiles() : await window.api.zipSelectArchives();
         if (paths?.length > 0) {
+            // Reset crack-related states when adding new files
+            if (mode === 'crack') {
+                setFoundPassword(null);
+                setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1, current: '' });
+            }
+            
             if (mode === 'compress') {
                 setCompressFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
             } else if (mode === 'extract') {
@@ -190,6 +196,12 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
         e.preventDefault(); e.stopPropagation(); setDragOver(false);
         const paths = Array.from(e.dataTransfer.files).map(f => f.path);
         if (paths.length > 0) {
+            // Reset crack-related states when adding new files
+            if (mode === 'crack') {
+                setFoundPassword(null);
+                setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1, current: '' });
+            }
+            
             if (mode === 'compress') {
                 setCompressFiles(prev => [...prev, ...paths.filter(p => !prev.includes(p))]);
             } else if (mode === 'extract') {
