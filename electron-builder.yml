@@ -4,14 +4,22 @@ directories:
   output: dist
   buildResources: build
 files:
-  - "**/*"
+  - "out/**/*"
+  - "package.json"
   - "!**/.vscode/*"
-  - "!src/*"
-  - "!electron.vite.config.{js,ts,mjs,cjs}"
-  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
-  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
-  - "!resources/bin-win/*"
-  - "!resources/bin-mac/*"
+  - "!src/**/*"
+  - "!resources/**/*"
+  - "!design-assets/**/*"
+  - "!scripts/**/*"
+  - "!kernels/**/*"
+  - "!.kiro/**/*"
+  - "!.github/**/*"
+  - "!**/*.map"
+  - "!**/*.md"
+  - "!**/*.test.js"
+  - "!**/test/**/*"
+  - "!**/tests/**/*"
+  - "!**/__tests__/**/*"
 
 # Publish configuration for auto-update (actual publishing prevented by --publish never in package.json)
 publish:
@@ -25,25 +33,41 @@ extraResources:
     to: bin
     filter:
       - "**/*"
-  - from: resources/hashcat
-    to: hashcat
-    filter:
-      - "**/*"
-      - "!*.7z"
+  - from: build/icon.png
+    to: icon.png
 
 win:
+  extraResources:
+    - from: resources/hashcat
+      to: hashcat
+      filter:
+        - "**/*"
+        - "!*.7z"
+        - "!**/*.so"
+        - "!**/docs/**"
+        - "!**/extra/**"
+        - "!**/tools/**"
+
   executableName: ProFlowStudio
-  sign: null
   target: 
-    - target: zip
+    - target: nsis
       arch:
         - x64
-  certificateFile: null
-  certificatePassword: null
+  signAndEditExecutable: false
   signDlls: false
   verifyUpdateCodeSignature: false
 
 mac:
+  extraResources:
+    - from: resources/hashcat
+      to: hashcat
+      filter:
+        - "**/*"
+        - "!*.7z"
+        - "!**/*.dll"
+        - "!**/docs/**"
+        - "!**/extra/**"
+        - "!**/tools/**"
   target:
     - target: dmg
       arch:

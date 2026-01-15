@@ -66,6 +66,18 @@ function createWindow() {
 
     console.log(`[Window] Screen: ${screenWidth}x${screenHeight}, Default: ${defaultWidth}x${defaultHeight}, Min: ${minWidth}x${minHeight}`);
 
+    // 获取图标路径 - 开发环境和生产环境路径不同
+    const getIconPath = () => {
+        if (isDev()) {
+            // 开发环境：从项目根目录的 build 文件夹加载
+            return join(__dirname, '../../build/icon.png');
+        } else {
+            // 生产环境：图标已经嵌入到 exe 中，但窗口图标需要从 resources 加载
+            // electron-builder 会将 buildResources 目录的内容复制到 app.asar 同级目录
+            return join(process.resourcesPath, 'icon.png');
+        }
+    };
+
     const mainWindow = new BrowserWindow({
         width: defaultWidth,
         height: defaultHeight,
@@ -75,7 +87,7 @@ function createWindow() {
         autoHideMenuBar: true,
         title: 'ProFlow Studio v1.1.4',
         center: true,
-        icon: join(__dirname, '../../build/icon.png'),
+        icon: getIconPath(),
         ...(process.platform === 'linux' ? {} : {}),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
