@@ -604,14 +604,14 @@ async function extractHash(archivePath, encryption) {
         throw err;
     }
 }
-// ============ GPU 攻击阶段顺序（已优化：键盘模式提前到Phase 2） ============
+// ============ GPU 攻击阶段顺序（已优化：短密码暴力破解优先） ============
 const GPU_ATTACK_PHASES = {
-    1: { name: 'Dictionary', method: 'Hashcat GPU Dictionary', description: 'Built-in Dictionary' },
-    2: { name: 'Keyboard', method: 'Hashcat GPU Keyboard', description: 'Keyboard Patterns' },
-    3: { name: 'Rule', method: 'Hashcat GPU Rule Attack', description: 'Rule Transform' },
-    4: { name: 'Mask', method: 'Hashcat GPU Smart Mask', description: 'Smart Mask' },
-    5: { name: 'Hybrid', method: 'Hashcat GPU Hybrid', description: 'Hybrid Attack' },
-    6: { name: 'Bruteforce', method: 'Hashcat GPU Bruteforce', description: 'Short Bruteforce' },
+    1: { name: 'Bruteforce', method: 'Hashcat GPU Bruteforce', description: 'Short Bruteforce (1-4 chars)' },
+    2: { name: 'Dictionary', method: 'Hashcat GPU Dictionary', description: 'Built-in Dictionary' },
+    3: { name: 'Keyboard', method: 'Hashcat GPU Keyboard', description: 'Keyboard Patterns' },
+    4: { name: 'Rule', method: 'Hashcat GPU Rule Attack', description: 'Rule Transform' },
+    5: { name: 'Mask', method: 'Hashcat GPU Smart Mask', description: 'Smart Mask' },
+    6: { name: 'Hybrid', method: 'Hashcat GPU Hybrid', description: 'Hybrid Attack' },
     7: { name: 'CPU', method: 'CPU Smart Dictionary', description: 'CPU Smart Dict' }
 };
 
@@ -1040,10 +1040,23 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
     session.currentPhase = 1;
 
     try {
-        // ========== Phase 1: Dictionary Attack (skip in bruteforce mode) ==========
-        if (!isBruteforceMode) {
-            console.log('[Crack] Phase 1: Dictionary Attack');
-            event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Starting dictionary attack...', method: 'Hashcat GPU Dictionary' });
+        // ========== Phase 1: Short Bruteforce (1-4 chars) - 最快，优先测试 ==========
+        if (session.active) {
+            console.log('[Crack] Phase 1: Short Bruteforce (1-4 chars) - Testing short passwords first');
+            const result = await runShortBruteforce(hashFile, outFile, hashMode, event, id, session, totalAttempts, options);
+            totalAttempts = result.attempts;
+            
+            if (result.found) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return { found: result.found, attempts: totalAttempts };
+            }
+        }
+
+        // ========== Phase 2: Dictionary Attack (skip in bruteforce mode) ==========
+        if (session.active && !isBruteforceMode) {
+            console.log('[Crack] Phase 2: Dictionary Attack');
+            session.currentPhase = 2;
+            event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: 'Starting dictionary attack...', method: 'Hashcat GPU Dictionary' });
 
             // Use rockyou.txt (14M passwords) or combined_wordlist.txt
             let dictPath = path.join(hashcatDir, 'rockyou.txt');
@@ -1055,7 +1068,7 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
 
             if (fs.existsSync(builtinDict)) {
                 const args = ['-a', '0', builtinDict];
-                const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Dictionary', event, id, session, 0);
+                const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Dictionary', event, id, session, totalAttempts);
                 totalAttempts = result.attempts;
 
                 if (result.found) {
@@ -1063,13 +1076,14 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
                     return { found: result.found, attempts: totalAttempts };
                 }
             }
-        } else {
-            console.log('[Crack] Skipping Phase 1 (Dictionary) - Bruteforce mode selected');
+        } else if (isBruteforceMode) {
+            console.log('[Crack] Skipping Phase 2 (Dictionary) - Bruteforce mode selected');
         }
 
-        // ========== Phase 2: 键盘模式攻击（优化：提前测试常见键盘密码） ==========
+        // ========== Phase 3: 键盘模式攻击 ==========
         if (session.active) {
-            console.log('[Crack] Phase 2: Keyboard Patterns Attack (Optimized - moved earlier)');
+            console.log('[Crack] Phase 3: Keyboard Patterns Attack');
+            session.currentPhase = 3;
             const result = await runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
@@ -1079,9 +1093,10 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
             }
         }
 
-        // ========== Phase 3: 规则攻击 (skip in bruteforce mode) ==========
+        // ========== Phase 4: 规则攻击 (skip in bruteforce mode) ==========
         if (session.active && !isBruteforceMode) {
-            console.log('[Crack] Phase 3: Rule Attack');
+            console.log('[Crack] Phase 4: Rule Attack');
+            session.currentPhase = 4;
             const result = await runRuleAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
 
@@ -1090,12 +1105,13 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
                 return { found: result.found, attempts: totalAttempts };
             }
         } else if (isBruteforceMode) {
-            console.log('[Crack] Skipping Phase 3 (Rule) - Bruteforce mode selected');
+            console.log('[Crack] Skipping Phase 4 (Rule) - Bruteforce mode selected');
         }
 
-        // ========== Phase 4: 智能掩码攻击 ==========
+        // ========== Phase 5: 智能掩码攻击 ==========
         if (session.active) {
-            console.log('[Crack] Phase 4: Smart Mask Attack');
+            console.log('[Crack] Phase 5: Smart Mask Attack');
+            session.currentPhase = 5;
             const result = await runMaskAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
@@ -1105,9 +1121,10 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
             }
         }
 
-        // ========== Phase 5: 混合攻击 ==========
+        // ========== Phase 6: 混合攻击 ==========
         if (session.active && !isBruteforceMode) {
-            console.log('[Crack] Phase 5: Hybrid Attack');
+            console.log('[Crack] Phase 6: Hybrid Attack');
+            session.currentPhase = 6;
             const result = await runHybridAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
@@ -1116,22 +1133,10 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
                 return { found: result.found, attempts: totalAttempts };
             }
         } else if (isBruteforceMode) {
-            console.log('[Crack] Skipping Phase 5 (Hybrid) - Bruteforce mode selected');
+            console.log('[Crack] Skipping Phase 6 (Hybrid) - Bruteforce mode selected');
         }
 
-        // ========== Phase 6: �����뱩�� ==========
-        if (session.active) {
-            console.log('[Crack] Phase 6: Short Bruteforce');
-            const result = await runShortBruteforce(hashFile, outFile, hashMode, event, id, session, totalAttempts, options);
-            totalAttempts = result.attempts;
-            
-            if (result.found) {
-                fs.rmSync(tempDir, { recursive: true, force: true });
-                return { found: result.found, attempts: totalAttempts };
-            }
-        }
-
-        // ========== Phase 7: CPU �����ֵ���� ==========
+        // ========== Phase 7: CPU 智能字典回退 ==========
         if (session.active) {
             console.log('[Crack] Phase 7: CPU Smart Dictionary Fallback');
             session.currentPhase = 7;
@@ -1139,7 +1144,7 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
             
             fs.rmSync(tempDir, { recursive: true, force: true });
             
-            // CPU ֻ���ֵ�ģʽ��������
+            // CPU 只用字典模式，不暴力破解
             const cpuOptions = { ...options, mode: 'dictionary' };
             return crackWithMultiThreadCPU(archivePath, cpuOptions, event, id, session, startTime);
         }
