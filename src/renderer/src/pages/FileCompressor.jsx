@@ -55,6 +55,7 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
     const [gpuAvailable, setGpuAvailable] = useState(false);
     const [crackJobId, setCrackJobId] = useState(null);
     const [crackMethod, setCrackMethod] = useState(null);
+    const [copied, setCopied] = useState(false);
 
     // Helper to check if file is an archive
     const isArchiveFile = (filePath) => {
@@ -247,6 +248,15 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
         if (charset.includes('numbers')) cs += '0123456789';
         if (charset.includes('special')) cs += '!@#$%^&*()_+-=[]{}|;:,.<>?';
         window.api.zipCrackStart(files[0], { mode: attackMode, charset: cs || 'abcdefghijklmnopqrstuvwxyz0123456789', minLength, maxLength, useGpu: gpuAvailable, useCpuMultiThread }, jobId);
+    };
+    const handleCopyPassword = async () => {
+        try {
+            await navigator.clipboard.writeText(foundPassword);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
     };
     const handleCancel = () => {
         if (mode === 'crack' && crackJobId) { 
@@ -677,9 +687,20 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
                                             <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 font-mono">{foundPassword}</p>
                                         </div>
                                     </div>
-                                    <button onClick={() => navigator.clipboard.writeText(foundPassword)} 
+                                    <button onClick={handleCopyPassword} 
                                         className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2">
-                                        {Icons.copy} Copy to Clipboard
+                                        {copied ? (
+                                            <>
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                                Copied!
+                                            </>
+                                        ) : (
+                                            <>
+                                                {Icons.copy} Copy to Clipboard
+                                            </>
+                                        )}
                                     </button>
                                 </div>
                             )}
