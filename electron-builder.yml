@@ -85,11 +85,8 @@ mac:
         - arm64
   category: public.app-category.utilities
   artifactName: ${name}-${version}-${arch}.${ext}
-  hardenedRuntime: true
+  hardenedRuntime: false
   gatekeeperAssess: false
-  identity: null
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
 
 nsis:
   oneClick: false
