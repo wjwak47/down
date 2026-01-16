@@ -39,11 +39,19 @@ jobs:
       - name: Download hashcat for macOS
         run: |
           mkdir -p resources/hashcat-mac
-          curl -L https://hashcat.net/files/hashcat-6.2.6.7z -o hashcat.7z
-          7z x hashcat.7z -o./hashcat-temp
-          cp -r hashcat-temp/hashcat-6.2.6/* resources/hashcat-mac/
+          # Install hashcat via Homebrew (pre-compiled for macOS)
+          brew install hashcat
+          # Find and copy hashcat binary
+          HASHCAT_PATH=$(which hashcat)
+          echo "Hashcat found at: $HASHCAT_PATH"
+          cp "$HASHCAT_PATH" resources/hashcat-mac/hashcat
           chmod +x resources/hashcat-mac/hashcat
-          rm -rf hashcat.7z hashcat-temp
+          # Copy OpenCL kernels (required for hashcat)
+          HASHCAT_SHARE=$(brew --prefix hashcat)/share/hashcat
+          if [ -d "$HASHCAT_SHARE" ]; then
+            cp -r "$HASHCAT_SHARE"/* resources/hashcat-mac/
+          fi
+          ls -la resources/hashcat-mac/
 
       - name: Download John the Ripper for macOS
         run: |
