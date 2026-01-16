@@ -127,7 +127,7 @@ function getJohnToolPath(tool) {
 function isJohnToolAvailable(format) {
     try {
         const toolMap = isMac 
-            ? { 'zip': 'zip2john', 'rar': 'rar2john', '7z': '7z2hashcat' }
+            ? { 'zip': 'zip2john', 'rar': 'rar2john', '7z': '7z2hashcat.pl' }
             : { 'zip': 'zip2john.exe', 'rar': 'rar2john.exe', '7z': '7z2hashcat64-2.0.exe' };
         const tool = toolMap[format];
         if (!tool) return false;
@@ -668,10 +668,29 @@ function extractRarHash(archivePath) {
 
 function extract7zHash(archivePath) {
     return new Promise((resolve, reject) => {
-        const toolName = isMac ? '7z2hashcat' : '7z2hashcat64-2.0.exe';
-        const sevenZ2johnPath = getJohnToolPath(toolName);
-        if (!fs.existsSync(sevenZ2johnPath)) { reject(new Error('7z2hashcat not found')); return; }
-        const proc = spawn(sevenZ2johnPath, [archivePath], { windowsHide: true });
+        let toolName, toolPath, proc;
+        
+        if (isMac) {
+            // Mac: 7z2hashcat is a Perl script (.pl)
+            toolName = '7z2hashcat.pl';
+            toolPath = getJohnToolPath(toolName);
+            if (!fs.existsSync(toolPath)) { 
+                reject(new Error('7z2hashcat.pl not found at ' + toolPath)); 
+                return; 
+            }
+            // Run with perl interpreter
+            proc = spawn('perl', [toolPath, archivePath], { windowsHide: true });
+        } else {
+            // Windows: 7z2hashcat is an executable
+            toolName = '7z2hashcat64-2.0.exe';
+            toolPath = getJohnToolPath(toolName);
+            if (!fs.existsSync(toolPath)) { 
+                reject(new Error('7z2hashcat not found at ' + toolPath)); 
+                return; 
+            }
+            proc = spawn(toolPath, [archivePath], { windowsHide: true });
+        }
+        
         let output = '', error = '';
         proc.stdout.on('data', (data) => { output += data.toString(); });
         proc.stderr.on('data', (data) => { error += data.toString(); });
@@ -694,7 +713,7 @@ async function extractHash(archivePath, encryption) {
     const toolMap = isMac ? {
         '.zip': 'zip2john',
         '.rar': 'rar2john',
-        '.7z': '7z2hashcat'
+        '.7z': '7z2hashcat.pl'
     } : {
         '.zip': 'zip2john.exe',
         '.rar': 'rar2john.exe',
@@ -2634,6 +2653,44 @@ export const registerFileCompressor = () => {
     ipcMain.handle('zip:crack-delete-session', async (event, { sessionId }) => {
         sessionManager.deleteSession(sessionId);
         return { success: true };
+    });
+    
+    // Diagnostic handler - check tool availability (useful for Mac debugging)
+    ipcMain.handle('zip:crack-diagnostics', async () => {
+        const diagnostics = {
+            platform: process.platform,
+            arch: process.arch,
+            isPackaged: app.isPackaged,
+            resourcesPath: app.isPackaged ? process.resourcesPath : path.join(process.cwd(), 'resources'),
+            tools: {
+                hashcat: {
+                    path: getHashcatPath(),
+                    exists: fs.existsSync(getHashcatPath())
+                },
+                zip2john: {
+                    path: getJohnToolPath(isMac ? 'zip2john' : 'zip2john.exe'),
+                    exists: fs.existsSync(getJohnToolPath(isMac ? 'zip2john' : 'zip2john.exe'))
+                },
+                rar2john: {
+                    path: getJohnToolPath(isMac ? 'rar2john' : 'rar2john.exe'),
+                    exists: fs.existsSync(getJohnToolPath(isMac ? 'rar2john' : 'rar2john.exe'))
+                },
+                '7z2hashcat': {
+                    path: getJohnToolPath(isMac ? '7z2hashcat.pl' : '7z2hashcat64-2.0.exe'),
+                    exists: fs.existsSync(getJohnToolPath(isMac ? '7z2hashcat.pl' : '7z2hashcat64-2.0.exe'))
+                },
+                bkcrack: {
+                    path: getBkcrackPath(),
+                    exists: fs.existsSync(getBkcrackPath())
+                },
+                system7z: {
+                    path: getSystem7zPath(),
+                    exists: getSystem7zPath() ? fs.existsSync(getSystem7zPath()) : false
+                }
+            }
+        };
+        console.log('[Crack] Diagnostics:', JSON.stringify(diagnostics, null, 2));
+        return diagnostics;
     });
     
     // Cleanup old sessions on startup

@@ -164,10 +164,10 @@ export async function extract7zHashNative(archivePath) {
 export function checkJohnTools(resourcesPath) {
     const isMac = process.platform === 'darwin';
     const tools = isMac 
-        ? ['zip2john', 'rar2john', '7z2hashcat']
+        ? ['zip2john', 'rar2john', '7z2hashcat.pl']
         : ['zip2john.exe', 'rar2john.exe', '7z2hashcat64-2.0.exe'];
     const johnPath = isMac 
-        ? path.join(resourcesPath, 'john-mac', 'run')
+        ? path.join(resourcesPath, 'john', 'run')  // packaged path: john/run
         : path.join(resourcesPath, 'john');
     
     const available = {};
