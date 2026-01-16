@@ -69,15 +69,14 @@ win:
 
 mac:
   extraResources:
-    - from: resources/hashcat
+    - from: resources/hashcat-mac
       to: hashcat
       filter:
         - "**/*"
-        - "!*.7z"
-        - "!**/*.dll"
-        - "!**/docs/**"
-        - "!**/extra/**"
-        - "!**/tools/**"
+    - from: resources/john-mac
+      to: john
+      filter:
+        - "**/*"
   target:
     - target: dmg
       arch:

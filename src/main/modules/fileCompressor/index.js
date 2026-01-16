@@ -79,11 +79,10 @@ function sendCrackProgress(event, id, session, updates = {}) {
 function getHashcatPath() {
     let hashcatPath;
     if (isMac) {
-        // Mac: hashcat is typically installed via homebrew or not available
-        // For now, return a path that won't exist - GPU cracking not supported on Mac
+        // Mac: hashcat binary (no .exe extension)
         hashcatPath = !app.isPackaged 
             ? path.join(process.cwd(), 'resources', 'hashcat-mac', 'hashcat')
-            : path.join(process.resourcesPath, 'hashcat-mac', 'hashcat');
+            : path.join(process.resourcesPath, 'hashcat', 'hashcat');
     } else {
         hashcatPath = !app.isPackaged 
             ? path.join(process.cwd(), 'resources', 'hashcat', 'hashcat-6.2.6', 'hashcat.exe')
@@ -101,7 +100,7 @@ function getBkcrackPath() {
     if (isMac) {
         return !app.isPackaged 
             ? path.join(process.cwd(), 'resources', 'bkcrack-mac', 'bkcrack')
-            : path.join(process.resourcesPath, 'bkcrack-mac', 'bkcrack');
+            : path.join(process.resourcesPath, 'bkcrack', 'bkcrack');
     }
     return !app.isPackaged 
         ? path.join(process.cwd(), 'resources', 'bkcrack', 'bkcrack.exe')
@@ -118,7 +117,7 @@ function getJohnToolPath(tool) {
         const macTool = tool.replace('.exe', '');
         return !app.isPackaged
             ? path.join(process.cwd(), 'resources', 'john-mac', 'run', macTool)
-            : path.join(process.resourcesPath, 'john-mac', 'run', macTool);
+            : path.join(process.resourcesPath, 'john', 'run', macTool);
     }
     return !app.isPackaged
         ? path.join(process.cwd(), 'resources', 'john', 'john-1.9.0-jumbo-1-win64', 'run', tool)

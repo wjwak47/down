@@ -36,6 +36,31 @@ jobs:
           unzip ffmpeg.zip -d resources/bin-mac/
           chmod +x resources/bin-mac/ffmpeg
 
+      - name: Download hashcat for macOS
+        run: |
+          mkdir -p resources/hashcat-mac
+          curl -L https://hashcat.net/files/hashcat-6.2.6.7z -o hashcat.7z
+          7z x hashcat.7z -o./hashcat-temp
+          cp -r hashcat-temp/hashcat-6.2.6/* resources/hashcat-mac/
+          chmod +x resources/hashcat-mac/hashcat
+          rm -rf hashcat.7z hashcat-temp
+
+      - name: Download John the Ripper for macOS
+        run: |
+          mkdir -p resources/john-mac
+          # Use Homebrew to install john and copy the binaries
+          brew install john
+          # Copy john binaries to resources
+          cp /opt/homebrew/bin/zip2john resources/john-mac/ 2>/dev/null || cp /usr/local/bin/zip2john resources/john-mac/ 2>/dev/null || true
+          cp /opt/homebrew/bin/rar2john resources/john-mac/ 2>/dev/null || cp /usr/local/bin/rar2john resources/john-mac/ 2>/dev/null || true
+          # Create run directory structure expected by code
+          mkdir -p resources/john-mac/run
+          mv resources/john-mac/zip2john resources/john-mac/run/ 2>/dev/null || true
+          mv resources/john-mac/rar2john resources/john-mac/run/ 2>/dev/null || true
+          # Also try to get 7z2hashcat
+          curl -L https://github.com/philsmd/7z2hashcat/releases/download/v1.5/7z2hashcat.pl -o resources/john-mac/run/7z2hashcat 2>/dev/null || true
+          chmod +x resources/john-mac/run/* 2>/dev/null || true
+
       - name: Install dependencies
         run: npm ci
 
