@@ -77,16 +77,20 @@ function sendCrackProgress(event, id, session, updates = {}) {
 
 // ============ Cross-platform tool paths ============
 function getHashcatPath() {
+    let hashcatPath;
     if (isMac) {
         // Mac: hashcat is typically installed via homebrew or not available
         // For now, return a path that won't exist - GPU cracking not supported on Mac
-        return !app.isPackaged 
+        hashcatPath = !app.isPackaged 
             ? path.join(process.cwd(), 'resources', 'hashcat-mac', 'hashcat')
             : path.join(process.resourcesPath, 'hashcat-mac', 'hashcat');
+    } else {
+        hashcatPath = !app.isPackaged 
+            ? path.join(process.cwd(), 'resources', 'hashcat', 'hashcat-6.2.6', 'hashcat.exe')
+            : path.join(process.resourcesPath, 'hashcat', 'hashcat-6.2.6', 'hashcat.exe');
     }
-    return !app.isPackaged 
-        ? path.join(process.cwd(), 'resources', 'hashcat', 'hashcat-6.2.6', 'hashcat.exe')
-        : path.join(process.resourcesPath, 'hashcat', 'hashcat-6.2.6', 'hashcat.exe');
+    console.log('[Crack] getHashcatPath:', hashcatPath, 'exists:', fs.existsSync(hashcatPath), 'isPackaged:', app.isPackaged);
+    return hashcatPath;
 }
 
 function getHashcatDir() {
@@ -436,20 +440,26 @@ async function crackWithCPU(archivePath, options, event, id, session, startTime)
     return { found, attempts: totalAttempts };
 }
 
-// ============ CPU ???????? ============
-async function crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime) {
+// ============ CPU 多线程破解 (支持恢复) ============
+async function crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime, resumeState = null) {
     const { mode, charset, minLength, maxLength, dictionaryPath } = options;
     
-    // Worker ???��?? - ????????? out/main?????????? resources
+    // 获取恢复状态
+    const previousAttempts = resumeState?.previousAttempts || 0;
+    const resumeStartIdx = resumeState?.cpuStartIdx || 0;
+    
+    console.log('[Crack] CPU Multi-thread mode, resumeStartIdx:', resumeStartIdx, 'previousAttempts:', previousAttempts);
+    
+    // Worker 路径 - 开发环境在 out/main，打包后在 resources
     const workerPath = !app.isPackaged
         ? path.join(process.cwd(), 'out', 'main', 'crackWorker.js')
         : path.join(process.resourcesPath, 'app.asar.unpacked', 'out', 'main', 'crackWorker.js');
     
-    // ??? Worker ?????????????????
+    // 如果 Worker 不存在，回退到单线程模式
     if (!fs.existsSync(workerPath)) {
         console.log('[Crack] Worker not found at:', workerPath, '- fallback to single-thread');
         sendCrackProgress(event, id, session, {
-            attempts: 0,
+            attempts: previousAttempts,
             speed: 0,
             current: 'Starting...',
             method: 'CPU Single'
@@ -459,7 +469,7 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
     
     console.log('[Crack] Multi-thread CPU mode with', NUM_WORKERS, 'workers');
     sendCrackProgress(event, id, session, {
-        attempts: 0,
+        attempts: previousAttempts,
         speed: 0,
         current: 'Starting workers...',
         method: 'CPU Multi-thread'
@@ -467,7 +477,7 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
     
     let found = null;
     const workers = [];
-    const workerProgress = new Map(); // ??????? worker ?????
+    const workerProgress = new Map(); // 记录每个 worker 的进度
     
     const cleanup = () => {
         workers.forEach(w => { try { w.terminate(); } catch(e) {} });
@@ -477,10 +487,11 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
     
     return new Promise((resolve) => {
         let completedWorkers = 0;
+        let globalStartIdx = resumeStartIdx; // 用于保存当前进度
         
-        // ?????????
+        // 计算总尝试次数
         const getTotalAttempts = () => {
-            let total = 0;
+            let total = previousAttempts;
             workerProgress.forEach(v => total += v);
             return total;
         };
@@ -494,11 +505,16 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
                 if (!session.active || found) return;
                 
                 if (msg.type === 'progress') {
-                    // ??????? worker ?????
+                    // 更新每个 worker 的进度
                     workerProgress.set(i, msg.tested);
                     const totalAttempts = getTotalAttempts();
                     const elapsed = (Date.now() - startTime) / 1000;
                     const speed = elapsed > 0 ? Math.round(totalAttempts / elapsed) : 0;
+                    
+                    // 保存当前进度到 session，用于恢复
+                    if (msg.currentIdx !== undefined) {
+                        session.cpuStartIdx = Math.max(session.cpuStartIdx || 0, msg.currentIdx);
+                    }
                     
                     sendCrackProgress(event, id, session, {
                         attempts: totalAttempts,
@@ -536,23 +552,29 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
             });
         }
         
-        // ????????????? workers
+        // 根据模式分配任务给 workers
         const cs = charset || 'abcdefghijklmnopqrstuvwxyz0123456789';
         const minLen = minLength || 1;
         const maxLen = Math.min(maxLength || 6, 8);
         
         if (mode === 'dictionary') {
-            // ?????
+            // 字典模式
             let allWords = [];
             if (dictionaryPath && fs.existsSync(dictionaryPath)) {
                 allWords = fs.readFileSync(dictionaryPath, 'utf-8').split('\n').filter(l => l.trim()).map(l => l.trim());
             }
-            // ?? SMART_DICTIONARY ????????��?????????????????????
+            // 合并 SMART_DICTIONARY，去重
             allWords = [...SMART_DICTIONARY, ...allWords.filter(w => !SMART_DICTIONARY.includes(w))];
+            
+            // 如果有恢复状态，跳过已测试的词
+            if (resumeStartIdx > 0 && resumeStartIdx < allWords.length) {
+                console.log('[Crack] Resuming dictionary from index:', resumeStartIdx);
+                allWords = allWords.slice(resumeStartIdx);
+            }
             
             console.log('[Crack] Dictionary mode with', allWords.length, 'words');
             
-            // ??y???????????? worker ?????????????????
+            // 均匀分配词汇给每个 worker
             const workerChunks = Array.from({ length: NUM_WORKERS }, () => []);
             allWords.forEach((word, idx) => {
                 workerChunks[idx % NUM_WORKERS].push(word);
@@ -565,28 +587,36 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
                     type: 'dictionary',
                     archivePath,
                     words: chunk,
-                    pathTo7zip
+                    pathTo7zip,
+                    startIdx: resumeStartIdx // 传递起始索引用于进度报告
                 });
             });
         } else {
-            // ?????????
+            // 暴力破解模式
             let totalPasswords = 0;
             for (let len = minLen; len <= maxLen; len++) {
                 totalPasswords += Math.pow(cs.length, len);
             }
             
-            console.log('[Crack] Bruteforce mode with', totalPasswords, 'total passwords');
+            // 计算实际的起始位置（考虑恢复）
+            const effectiveStartIdx = resumeStartIdx;
+            const remainingPasswords = totalPasswords - effectiveStartIdx;
             
-            const chunkSize = Math.ceil(totalPasswords / NUM_WORKERS);
+            console.log('[Crack] Bruteforce mode with', totalPasswords, 'total passwords, starting from:', effectiveStartIdx);
+            
+            const chunkSize = Math.ceil(remainingPasswords / NUM_WORKERS);
             workers.forEach((worker, idx) => {
+                const workerStartIdx = effectiveStartIdx + (idx * chunkSize);
+                const workerEndIdx = Math.min(effectiveStartIdx + ((idx + 1) * chunkSize), totalPasswords);
+                
                 worker.postMessage({
                     type: 'bruteforce',
                     archivePath,
                     charset: cs,
                     minLength: minLen,
                     maxLength: maxLen,
-                    startIdx: idx * chunkSize,
-                    endIdx: (idx + 1) * chunkSize,
+                    startIdx: workerStartIdx,
+                    endIdx: workerEndIdx,
                     pathTo7zip
                 });
             });
@@ -1897,7 +1927,7 @@ export const registerFileCompressor = () => {
 
             // CPU Multi-thread fallback
             console.log('[Crack] Strategy: CPU Multi-thread');
-            return await crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+            return await crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime, resumeState);
         } catch (err) {
             console.error('[Crack] crackWithSmartStrategyResume error:', err);
             throw err;
@@ -1944,7 +1974,7 @@ export const registerFileCompressor = () => {
         // ✅ But if we're resuming from a GPU phase, try to continue with GPU anyway
         if (!hashcatAvailable || (!encryption.canUseHashcat && !isResuming)) {
             console.log('[Crack] Hashcat not available, falling back to CPU');
-            return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+            return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime, resumeState);
         }
         
         // Extract hash
@@ -1954,7 +1984,7 @@ export const registerFileCompressor = () => {
             console.log('[Crack] Extracted hash:', hash.substring(0, 50) + '...');
         } catch (err) {
             console.log('[Crack] Hash extraction failed:', err.message);
-            return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+            return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime, resumeState);
         }
 
         // Create temp files
@@ -2432,6 +2462,19 @@ export const registerFileCompressor = () => {
         if (session.sessionId && session.stats) {
             try {
                 console.log('[Crack] Saving session state...');
+                // ✅ Save CPU progress (cpuStartIdx) for resume
+                const sessionUpdate = {
+                    testedPasswords: session.stats.testedPasswords,
+                    currentPhase: session.currentPhase || 0,
+                    phaseState: session.phaseState || {},
+                    cpuStartIdx: session.cpuStartIdx || 0, // ✅ Save CPU progress
+                    lastUpdateTime: Date.now()
+                };
+                console.log('[Crack] Session update:', sessionUpdate);
+                sessionManager.saveSession(session.sessionId, {
+                    ...session.sessionData,
+                    ...sessionUpdate
+                });
                 sessionManager.pauseSession(session.sessionId);
             } catch (err) {
                 console.error('[Crack] Failed to pause session:', err);
@@ -2568,14 +2611,15 @@ export const registerFileCompressor = () => {
         // Generate new job ID for this resume
         const jobId = Date.now().toString();
         
-        console.log('[Crack] Resuming from phase:', sessionData.currentPhase, 'tested:', sessionData.testedPasswords);
+        console.log('[Crack] Resuming from phase:', sessionData.currentPhase, 'tested:', sessionData.testedPasswords, 'cpuStartIdx:', sessionData.cpuStartIdx);
         
         // Restart cracking from saved phase
         startCrackingWithResume(event, jobId, archivePath, sessionData.options, {
             startPhase: sessionData.currentPhase || 0,
             previousAttempts: sessionData.testedPasswords || 0,
             sessionId: sessionId,
-            phaseState: sessionData.phaseState || {}
+            phaseState: sessionData.phaseState || {},
+            cpuStartIdx: sessionData.cpuStartIdx || 0 // ✅ Pass CPU progress for resume
         });
         
         return { success: true, jobId };

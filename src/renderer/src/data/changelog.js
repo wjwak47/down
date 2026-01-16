@@ -1,5 +1,22 @@
 export const changelog = [
     {
+        version: '1.1.6',
+        date: '2026-01-16',
+        changes: {
+            fixed: [
+                '修复打包后密码破解直接跳到CPU模式的问题 - 添加john工具到打包资源',
+                '修复CPU模式暂停恢复后从头开始的问题 - 添加cpuStartIdx进度保存',
+                '修复Mac系统sharp模块加载失败的问题 - 使用懒加载和错误处理',
+                '修复AI阶段暂停恢复后重复执行的问题 - 正确更新currentPhase',
+                '修复PassGPT临时文件路径问题 - 使用系统临时目录'
+            ],
+            improved: [
+                'CPU多线程破解支持断点续传',
+                '暂停恢复功能稳定性提升'
+            ]
+        }
+    },
+    {
         version: '1.1.5',
         date: '2025-01-15',
         changes: {
