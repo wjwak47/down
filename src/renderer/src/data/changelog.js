@@ -1,5 +1,18 @@
 export const changelog = [
     {
+        version: '1.1.7',
+        date: '2026-01-16',
+        changes: {
+            fixed: [
+                '修复Mac应用无法打开的问题 - 恢复v1.1.5的构建配置',
+                '移除导致Gatekeeper严格阻止的hardenedRuntime配置'
+            ],
+            improved: [
+                'Mac用户现在可以通过右键→打开来运行应用'
+            ]
+        }
+    },
+    {
         version: '1.1.6',
         date: '2026-01-16',
         changes: {
