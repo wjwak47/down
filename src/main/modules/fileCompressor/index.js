@@ -22,12 +22,46 @@ import StrategySelector from './strategySelector.js';
 // Use Python-based PassGPT generator (fallback when ONNX conversion fails)
 import PassGPTGenerator from './ai/passgptGeneratorPython.js';
 
-const pathTo7zip = sevenBin.path7za;
+const isMac = process.platform === 'darwin';
+const isWindows = process.platform === 'win32';
+
+// Get 7z path - Mac needs special handling
+function get7zPath() {
+    // First try bundled 7zip-bin
+    let bundled7z = sevenBin.path7za;
+    
+    // On Mac, check if bundled 7z exists and is executable
+    if (isMac) {
+        // Try system 7z first (more reliable on Mac)
+        const brewPath = '/opt/homebrew/bin/7z';
+        const usrPath = '/usr/local/bin/7z';
+        if (fs.existsSync(brewPath)) return brewPath;
+        if (fs.existsSync(usrPath)) return usrPath;
+        
+        // Check if bundled 7z exists
+        if (bundled7z && fs.existsSync(bundled7z)) {
+            return bundled7z;
+        }
+        
+        // Fallback: try to find 7z in PATH
+        try {
+            const which7z = execSync('which 7z 2>/dev/null || which 7za 2>/dev/null', { encoding: 'utf-8' }).trim();
+            if (which7z) return which7z;
+        } catch (e) {}
+        
+        console.warn('[7z] No 7z found on Mac, some features may not work');
+        return bundled7z; // Return bundled even if not found, will fail gracefully
+    }
+    
+    return bundled7z;
+}
+
+const pathTo7zip = get7zPath();
+console.log('[Init] 7z path:', pathTo7zip, 'exists:', fs.existsSync(pathTo7zip || ''));
+
 const crackSessions = new Map();
 const sessionManager = new SessionManager();
 const NUM_WORKERS = Math.max(1, os.cpus().length - 1);
-const isMac = process.platform === 'darwin';
-const isWindows = process.platform === 'win32';
 
 // Helper function to send progress with stats
 function sendCrackProgress(event, id, session, updates = {}) {
@@ -158,42 +192,75 @@ function getSystem7zPath() {
 // ============ Encryption Detection ============
 async function detectEncryption(archivePath) {
     return new Promise((resolve, reject) => {
-        const ext = path.extname(archivePath).toLowerCase();
-        const isRar = ext === '.rar';
-        
-        // Use system 7z for RAR if available, otherwise use bundled 7zip-bin
-        const system7z = getSystem7zPath();
-        const use7z = (isRar && system7z) ? system7z : pathTo7zip;
-        
-        console.log('[detectEncryption] Starting detection for:', archivePath);
-        console.log('[detectEncryption] Using 7z:', use7z);
-        
-        const proc = spawn(use7z, ['l', '-slt', '-p', archivePath], { windowsHide: true });
-        let output = '';
-        let resolved = false;
-        
-        // Add timeout to prevent hanging
-        const timeout = setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                console.log('[detectEncryption] Timeout - killing process');
-                try { proc.kill(); } catch(e) {}
-                resolve({ method: 'Unknown', format: 'unknown', isZipCrypto: false, isAES: false, canUseBkcrack: false, canUseHashcat: false, recommendation: 'cpu' });
-            }
-        }, 10000); // 10 second timeout
-        
-        proc.stdout.on('data', (data) => { output += data.toString(); });
-        proc.stderr.on('data', (data) => { output += data.toString(); });
-        
-        proc.on('close', () => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timeout);
-            // File type detection
-            const isZip = ext === '.zip';
-            const is7z = ext === '.7z';
+        try {
+            const ext = path.extname(archivePath).toLowerCase();
+            const isRar = ext === '.rar';
             
-            // ???????
+            // Use system 7z for RAR if available, otherwise use bundled 7zip-bin
+            const system7z = getSystem7zPath();
+            const use7z = (isRar && system7z) ? system7z : pathTo7zip;
+            
+            console.log('[detectEncryption] Starting detection for:', archivePath);
+            console.log('[detectEncryption] Using 7z:', use7z, 'exists:', fs.existsSync(use7z || ''));
+            
+            // If 7z doesn't exist, return safe defaults
+            if (!use7z || !fs.existsSync(use7z)) {
+                console.log('[detectEncryption] 7z not found, using safe defaults');
+                const format = ext === '.zip' ? 'zip' : (ext === '.rar' ? 'rar' : (ext === '.7z' ? '7z' : 'unknown'));
+                resolve({ 
+                    method: 'Unknown (7z not available)', 
+                    format, 
+                    isZipCrypto: false, 
+                    isAES: true, // Assume AES for safety
+                    canUseBkcrack: false, 
+                    canUseHashcat: false, 
+                    recommendation: 'cpu' 
+                });
+                return;
+            }
+            
+            const proc = spawn(use7z, ['l', '-slt', '-p', archivePath], { windowsHide: true });
+            let output = '';
+            let resolved = false;
+            
+            // Add timeout to prevent hanging
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    console.log('[detectEncryption] Timeout - killing process');
+                    try { proc.kill(); } catch(e) {}
+                    resolve({ method: 'Unknown', format: 'unknown', isZipCrypto: false, isAES: false, canUseBkcrack: false, canUseHashcat: false, recommendation: 'cpu' });
+                }
+            }, 10000); // 10 second timeout
+            
+            proc.stdout.on('data', (data) => { output += data.toString(); });
+            proc.stderr.on('data', (data) => { output += data.toString(); });
+            
+            proc.on('error', (err) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
+                console.log('[detectEncryption] Process error:', err.message);
+                // Return safe defaults on error
+                const format = ext === '.zip' ? 'zip' : (ext === '.rar' ? 'rar' : (ext === '.7z' ? '7z' : 'unknown'));
+                resolve({ 
+                    method: 'Unknown (error)', 
+                    format, 
+                    isZipCrypto: false, 
+                    isAES: true,
+                    canUseBkcrack: false, 
+                    canUseHashcat: false, 
+                    recommendation: 'cpu' 
+                });
+            });
+            
+            proc.on('close', () => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
+                // File type detection
+                const isZip = ext === '.zip';
+                const is7z = ext === '.7z';
             const typeMatch = output.match(/Type\s*=\s*(\w+)/i);
             const archiveType = typeMatch ? typeMatch[1] : '';
             const methodMatch = output.match(/Method\s*=\s*(.+)/i);
@@ -299,14 +366,20 @@ async function detectEncryption(archivePath) {
                 recommendation
             });
         });
-        
-        proc.on('error', (err) => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timeout);
-            console.log('[detectEncryption] Error:', err.message);
-            resolve({ method: 'Unknown', format: 'unknown', isZipCrypto: false, isAES: false, canUseBkcrack: false, canUseHashcat: false, recommendation: 'cpu' });
+    } catch (err) {
+        console.error('[detectEncryption] Unexpected error:', err);
+        const ext = path.extname(archivePath).toLowerCase();
+        const format = ext === '.zip' ? 'zip' : (ext === '.rar' ? 'rar' : (ext === '.7z' ? '7z' : 'unknown'));
+        resolve({ 
+            method: 'Unknown (exception)', 
+            format, 
+            isZipCrypto: false, 
+            isAES: true,
+            canUseBkcrack: false, 
+            canUseHashcat: false, 
+            recommendation: 'cpu' 
         });
+    }
     });
 }
 // ============ ???????????????? ============
@@ -328,18 +401,30 @@ function getKnownPlaintext(filename) {
 // ============ Password Testing ============
 function tryPasswordFast(archivePath, password) {
     return new Promise((resolve) => {
-        const ext = path.extname(archivePath).toLowerCase();
-        const isRar = ext === '.rar';
-        
-        // Use system 7z for RAR if available, otherwise use bundled 7zip-bin
-        const system7z = getSystem7zPath();
-        const use7z = (isRar && system7z) ? system7z : pathTo7zip;
-        
-        const proc = spawn(use7z, ['t', '-p' + password, '-y', archivePath], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-        let resolved = false;
-        proc.on('close', (code) => { if (!resolved) { resolved = true; resolve(code === 0); } });
-        proc.on('error', () => { if (!resolved) { resolved = true; resolve(false); } });
-        setTimeout(() => { if (!resolved) { resolved = true; try { proc.kill(); } catch(e) {} resolve(false); } }, 2000);
+        try {
+            const ext = path.extname(archivePath).toLowerCase();
+            const isRar = ext === '.rar';
+            
+            // Use system 7z for RAR if available, otherwise use bundled 7zip-bin
+            const system7z = getSystem7zPath();
+            const use7z = (isRar && system7z) ? system7z : pathTo7zip;
+            
+            // Check if 7z exists
+            if (!use7z || !fs.existsSync(use7z)) {
+                console.warn('[tryPasswordFast] 7z not found');
+                resolve(false);
+                return;
+            }
+            
+            const proc = spawn(use7z, ['t', '-p' + password, '-y', archivePath], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+            let resolved = false;
+            proc.on('close', (code) => { if (!resolved) { resolved = true; resolve(code === 0); } });
+            proc.on('error', () => { if (!resolved) { resolved = true; resolve(false); } });
+            setTimeout(() => { if (!resolved) { resolved = true; try { proc.kill(); } catch(e) {} resolve(false); } }, 2000);
+        } catch (err) {
+            console.error('[tryPasswordFast] Error:', err);
+            resolve(false);
+        }
     });
 }
 function generatePasswordBatch(charset, length, startIdx, batchSize) {
