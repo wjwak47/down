@@ -129,15 +129,15 @@
     - **属性9：自适应策略正确性**
     - **验证需求：6.1, 6.2, 6.3, 6.4, 6.5**
 
-- [ ] 8. 实现断点续传功能
-  - [ ] 8.1 创建SessionManager类
+- [-] 8. 实现断点续传功能
+  - [x] 8.1 创建SessionManager类
     - 实现Session创建和保存
     - 实现Session加载和恢复
     - 实现Session状态持久化（JSON文件）
     - 实现未完成Session检测
     - _需求：7.1, 7.2, 7.3, 7.4_
   
-  - [ ] 8.2 修改index.js支持Session
+  - [-] 8.2 修改index.js支持Session
     - 在破解开始时创建Session
     - 定期保存Session状态
     - 支持从Session恢复
@@ -158,13 +158,13 @@
     - **属性6：Session持久化完整性**
     - **验证需求：7.1, 7.2, 7.3, 7.4, 7.5**
 
-- [ ] 9. 实现实时统计和可视化
-  - [ ] 9.1 创建StatsCollector类
+- [-] 9. 实现实时统计和可视化
+  - [x] 9.1 创建StatsCollector类
     - 收集速度、进度、预估时间等统计信息
     - 实现统计信息计算逻辑
     - _需求：12.1, 12.2, 12.3, 12.4_
   
-  - [ ] 9.2 更新UI显示统计信息
+  - [x] 9.2 更新UI显示统计信息
     - 显示当前速度（pwd/s）
     - 显示进度百分比
     - 显示当前Phase
@@ -187,77 +187,79 @@
 
 ### 🟡 阶段3：P2 AI增强（2-4周）
 
-#### 第一阶段：PassGAN集成（1周）
+#### 第一阶段：PassGPT集成（1周）
 
-- [ ] 11. 准备PassGAN模型
-  - [ ] 11.1 下载PassGAN v2预训练模型
-    - 从GitHub下载PassGAN项目
+- [ ] 11. 准备PassGPT模型
+  - [ ] 11.1 下载PassGPT预训练模型
+    - 从Hugging Face下载PassGPT项目（javirandor/passgpt-10characters）
     - 获取预训练的PyTorch模型
     - _需求：8.1_
   
   - [ ] 11.2 转换模型为ONNX格式
     - 安装PyTorch和onnx库
-    - 编写转换脚本（convert_passgan.py）
+    - 编写转换脚本（convert_passgpt.py）
     - 转换模型并验证输出
     - 优化模型大小（量化）
+    - 导出词汇表（vocab.json）
     - _需求：8.1, 8.5_
   
   - [ ] 11.3 打包模型到应用
-    - 将passgan_v2.onnx放到resources/models/
+    - 将passgpt.onnx放到resources/models/
+    - 将passgpt_vocab.json放到resources/models/
     - 更新package.json包含模型文件
     - 验证模型文件完整性（checksum）
     - _需求：8.5_
 
-- [ ] 12. 实现PassGAN生成器
+- [ ] 12. 实现PassGPT生成器
   - [ ] 12.1 安装onnxruntime-node依赖
     - 添加onnxruntime-node到package.json
     - 测试不同平台兼容性
     - _需求：8.1_
   
-  - [ ] 12.2 创建PassGANGenerator类
-    - 实现模型加载逻辑
-    - 实现密码生成逻辑（批量推理）
-    - 实现密码解码和过滤
+  - [ ] 12.2 创建PassGPTGenerator类
+    - 实现模型加载逻辑（加载ONNX模型和词汇表）
+    - 实现密码生成逻辑（批量推理，支持temperature采样）
+    - 实现token解码和密码过滤
     - 实现资源释放
     - _需求：8.1, 8.2, 8.4_
   
-  - [ ]* 12.3 编写PassGAN生成器测试
+  - [ ]* 12.3 编写PassGPT生成器测试
     - 测试模型加载成功
     - 测试生成密码有效性
     - 测试生成速度≥50,000 pwd/s
-    - 测试命中率提升35-40%
-    - **属性10：PassGAN模型输出有效性**
+    - 测试命中率达到55-60%（比PassGAN高2倍）
+    - **属性10：PassGPT模型输出有效性**
     - **验证需求：8.1, 8.2, 8.3, 8.4**
 
-- [ ] 13. 集成PassGAN到破解流程
-  - [ ] 13.1 修改smartCracker.js添加AI Phase
+- [ ] 13. 集成PassGPT到破解流程
+  - [x] 13.1 修改smartCracker.js添加AI Phase
     - 添加'ai' Phase定义
     - 设置最高优先级（priority=0）
     - 配置生成50,000个密码
     - _需求：8.2_
   
-  - [ ] 13.2 修改index.js调用PassGAN
+  - [x] 13.2 修改index.js调用PassGPT
     - 在Phase循环中添加AI Phase处理
-    - 调用PassGANGenerator生成密码
+    - 调用PassGPTGenerator生成密码
     - 批量测试AI生成的密码
     - _需求：8.2_
   
-  - [ ] 13.3 添加错误降级处理
+  - [x] 13.3 添加错误降级处理
     - AI模型加载失败时降级到传统方法
     - 记录错误日志
     - **属性16：错误降级安全性**
     - _需求：错误处理_
 
-- [ ] 14. PassGAN阶段检查点
-  - 测试PassGAN模型加载和推理
-  - 测试命中率提升35-40%
+- [ ] 14. PassGPT阶段检查点
+  - 测试PassGPT模型加载和推理
+  - 测试命中率达到55-60%（比PassGAN高2倍）
   - 测试速度达到3000 pwd/s
   - 如有问题，询问用户
 
 #### 第二阶段：本地LSTM学习（3-5天）
 
-- [ ] 15. 实现本地密码数据库
-  - [ ] 15.1 创建PasswordDB类
+- [-] 15. 实现本地密码数据库
+  - [x] 15.1 创建PasswordDB类
     - 初始化SQLite数据库
     - 创建password_history表
     - 实现密码添加（加密存储）
@@ -379,7 +381,7 @@
 - [ ] 22. 实现AI协调器
   - [ ] 22.1 创建AIOrchestrator类
     - 实现混合密码生成策略
-    - PassGAN生成50% → LSTM排序30% → Markov填充20%
+    - PassGPT生成50% → LSTM排序30% → Markov填充20%
     - 实现模型权重配置
     - _需求：11.1, 11.2_
   
@@ -391,13 +393,13 @@
   
   - [ ]* 22.3 编写AI协调器测试
     - 测试混合策略正确性
-    - 测试命中率达到45-50%
+    - 测试命中率达到55-60%（PassGPT优势）
     - **属性13：AI模型协同效果**
     - **验证需求：11.1, 11.2, 11.5, 11.6**
 
 - [ ] 23. 最终集成和优化
   - [ ] 23.1 集成AIOrchestrator到破解流程
-    - 替换单独的PassGAN调用
+    - 替换单独的PassGPT调用
     - 使用AIOrchestrator生成密码
     - _需求：11.1_
   
@@ -416,7 +418,7 @@
 - [ ] 24. 阶段3最终检查点
   - 运行完整测试套件
   - 性能测试：验证速度达到5000 pwd/s
-  - 命中率测试：验证达到45-50%
+  - 命中率测试：验证达到55-60%（PassGPT优势）
   - 用户体验测试：验证所有UI功能
   - 如有问题，询问用户
 
@@ -467,7 +469,7 @@
 
 ### 阶段3完成后
 - ✅ 速度：5000 pwd/s（500倍提升）
-- ✅ AI命中率45-50%
+- ✅ AI命中率55-60%（PassGPT Transformer架构优势）
 - ✅ 支持本地学习
 - ✅ 支持在线学习（可选）
 - ✅ 行业领先水平

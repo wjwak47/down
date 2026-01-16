@@ -1,6 +1,32 @@
-import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
+
+// Try to load sharp, but handle gracefully if it fails (e.g., on Mac without native bindings)
+let sharp = null;
+let sharpError = null;
+let sharpLoaded = false;
+
+// Lazy load sharp on first use
+const loadSharp = async () => {
+    if (sharpLoaded) return;
+    sharpLoaded = true;
+    try {
+        const sharpModule = await import('sharp');
+        sharp = sharpModule.default;
+    } catch (err) {
+        sharpError = err.message;
+        console.warn('[ImageRemover] Sharp module not available:', err.message);
+    }
+};
+
+// Helper to check if sharp is available
+const checkSharp = async () => {
+    await loadSharp();
+    if (!sharp) {
+        throw new Error(`图片处理模块不可用: ${sharpError || 'sharp module not loaded'}. 请尝试重新安装应用。`);
+    }
+    return sharp;
+};
 
 /**
  * Remove watermark from image by covering specified regions
@@ -11,6 +37,7 @@ import path from 'path';
  */
 export const removeImageWatermark = async (inputPath, outputPath, regions = [], options = {}) => {
     try {
+        await checkSharp(); // Verify sharp is available
         const image = sharp(inputPath);
         const metadata = await image.metadata();
 
@@ -99,6 +126,7 @@ export const removeImageWatermark = async (inputPath, outputPath, regions = [], 
  */
 export const detectImageWatermark = async (inputPath) => {
     try {
+        await checkSharp(); // Verify sharp is available
         const image = sharp(inputPath);
         const metadata = await image.metadata();
 
@@ -136,6 +164,7 @@ export const detectImageWatermark = async (inputPath) => {
  */
 export const getImageInfo = async (inputPath) => {
     try {
+        await checkSharp(); // Verify sharp is available
         const image = sharp(inputPath);
         const metadata = await image.metadata();
 

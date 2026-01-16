@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useToast } from '../components/Toast';
 
 const Icons = {
@@ -25,12 +25,6 @@ const Icons = {
 
 const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
     const toast = useToast();
-    
-    // Debug: Log component mount/unmount
-    useEffect(() => {
-        console.log('[FileCompressor] Component mounted');
-        return () => console.log('[FileCompressor] Component unmounted');
-    }, []);
     
     // Separate file lists for each mode
     const [compressFiles, setCompressFiles] = useState([]);
@@ -63,14 +57,10 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
     const [useCpuMultiThread] = useState(() => localStorage.getItem('useCpuMultiThread') !== 'false');
     const [gpuAvailable, setGpuAvailable] = useState(false);
     const [crackJobId, setCrackJobId] = useState(null);
-    const [crackSessionId, setCrackSessionId] = useState(null); // ✅ Track sessionId separately from jobId
     const [crackMethod, setCrackMethod] = useState(null);
     const [copied, setCopied] = useState(false);
     const [pendingSessions, setPendingSessions] = useState([]);
     const [showSessionDialog, setShowSessionDialog] = useState(false);
-    
-    // ✅ Use ref to track pause status to avoid stale closures in event handlers
-    const isPausedRef = useRef(false);
 
     // Helper to check if file is an archive
     const isArchiveFile = (filePath) => {
@@ -160,12 +150,7 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
     useEffect(() => {
         if (!window.api?.onZipCrackProgress) return;
         window.api.onZipCrackStarted?.(() => {});
-        window.api.onZipCrackProgress(({ attempts, speed, current, currentLength, method, progress, eta, tested, total, sessionId }) => {
-            // ✅ Store sessionId when we receive it
-            if (sessionId) {
-                setCrackSessionId(sessionId);
-            }
-            
+        window.api.onZipCrackProgress(({ attempts, speed, current, currentLength, method, progress, eta, tested, total }) => {
             setCrackStats(prev => ({ 
                 speed: speed || 0, 
                 attempts: attempts || 0, 
@@ -178,47 +163,12 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
             }));
             if (method) setCrackMethod(method);
         });
-        window.api.onZipCrackResult?.(({ success, password: pwd, error, stopped }) => {
-            console.log('[FileCompressor] 🔔 onZipCrackResult received:', { success, password: !!pwd, error, stopped });
-            console.log('[FileCompressor] Current state before handling:', { processing, crackJobId });
-            console.log('[FileCompressor] isPausedRef.current:', isPausedRef.current);
-            
-            // ✅ CRITICAL: Ignore this event if we're in paused state
-            // This prevents race conditions where crack-complete arrives after pause
-            if (isPausedRef.current) {
-                console.log('[FileCompressor] ⚠️  Ignoring crack-complete because isPausedRef is true');
-                return;
-            }
-            
+        window.api.onZipCrackResult?.(({ success, password: pwd, error }) => {
             setProcessing(false); setCrackJobId(null);
             if (success && pwd) setFoundPassword(pwd);
             else if (error && error !== 'Cancelled') setCrackStats(prev => ({ ...prev, error, status: 'error' }));
             else if (!success && !error) setCrackStats(prev => ({ ...prev, status: 'not_found' }));
         });
-        // Listen for pause confirmation
-        const handlePaused = ({ id, sessionId }) => {
-            console.log('[FileCompressor] 🔔 onZipCrackPaused received:', id, 'sessionId:', sessionId);
-            console.log('[FileCompressor] Current crackJobId:', crackJobId);
-            console.log('[FileCompressor] Current crackSessionId:', crackSessionId);
-            
-            // ✅ Store sessionId from pause event
-            if (sessionId) {
-                console.log('[FileCompressor] Setting crackSessionId from pause event:', sessionId);
-                setCrackSessionId(sessionId);
-            }
-            
-            // ✅ Set ref to true to prevent crack-complete from resetting state
-            isPausedRef.current = true;
-            
-            // DON'T set processing to false - keep it true so UI doesn't reset
-            // setProcessing(false);
-            // Keep crackJobId (don't clear it) - IMPORTANT!
-            console.log('[FileCompressor] Setting status to paused, keeping crackJobId:', id);
-            setCrackStats(prev => ({ ...prev, status: 'paused', current: 'Paused' }));
-        };
-        if (window.api.onZipCrackPaused) {
-            window.api.onZipCrackPaused(handlePaused);
-        }
         // Listen for stop confirmation
         const handleStopped = ({ id }) => {
             console.log('[FileCompressor] Crack stopped:', id);
@@ -236,20 +186,9 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
         const downloadDir = localStorage.getItem('downloadPath') || '';
         try {
             const result = await window.api.openFolder(downloadDir);
-            if (!result?.success) {
-                try {
-                    await window.api.openDownloadsFolder();
-                } catch (err) {
-                    console.error('[FileCompressor] Failed to open downloads folder:', err);
-                }
-            }
-        } catch (err) { 
-            console.error('[FileCompressor] Failed to open folder:', err);
-            try { 
-                await window.api.openDownloadsFolder(); 
-            } catch (err2) {
-                console.error('[FileCompressor] Failed to open downloads folder:', err2);
-            }
+            if (!result?.success) await window.api.openDownloadsFolder();
+        } catch { 
+            try { await window.api.openDownloadsFolder(); } catch { }
         }
     };
 
@@ -333,15 +272,9 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
     };
     const handleCrack = () => {
         if (!window.api?.zipCrackStart) return;
-        
-        // ✅ Reset pause ref when starting new crack
-        isPausedRef.current = false;
-        
         setProcessing(true); setFoundPassword(null);
         setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength, status: null, current: '' });
-        const jobId = Date.now().toString(); 
-        setCrackJobId(jobId);
-        setCrackSessionId(null); // ✅ Clear old sessionId - will be set when progress arrives
+        const jobId = Date.now().toString(); setCrackJobId(jobId);
         let cs = '';
         if (charset.includes('lowercase')) cs += 'abcdefghijklmnopqrstuvwxyz';
         if (charset.includes('uppercase')) cs += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -380,24 +313,8 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
             }
         }
     };
-    
-    // Pause handler - saves session without deleting
-    const handlePause = async () => {
-        if (mode === 'crack' && crackJobId) {
-            console.log('[FileCompressor] 📤 Sending pause request for job:', crackJobId);
-            console.log('[FileCompressor] Current state:', { processing, crackJobId, crackStats });
-            window.api?.zipCrackPause?.(crackJobId);
-            // Show pausing status - DON'T set processing to false yet
-            setCrackStats(prev => ({ ...prev, current: 'Pausing...', status: 'pausing' }));
-        }
-    };
-    
-    // Stop handler - completely terminates and deletes session
-    const handleStop = () => {
+    const handleCancel = () => {
         if (mode === 'crack' && crackJobId) { 
-            // ✅ Reset pause ref when stopping
-            isPausedRef.current = false;
-            
             // Don't immediately set processing to false - wait for the stopped event
             console.log('[FileCompressor] Requesting stop for job:', crackJobId);
             window.api?.zipCrackStop?.(crackJobId);
@@ -410,35 +327,27 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
         }
     };
     
-    // Keep handleCancel for backward compatibility (calls handleStop)
-    const handleCancel = handleStop;
+    const handlePause = async () => {
+        if (mode === 'crack' && crackJobId) {
+            console.log('[FileCompressor] Pausing job:', crackJobId);
+            await window.api?.zipCrackStop?.(crackJobId);
+            setCrackStats(prev => ({ ...prev, status: 'paused' }));
+        }
+    };
     
-    const handleResume = async (sessionId, sessionFilePath = null) => {
+    const handleResume = async (sessionId) => {
         if (window.api?.zipCrackResume) {
             try {
-                // ✅ Use sessionFilePath if provided (from session dialog), otherwise use crackFiles[0]
-                const filePath = sessionFilePath || crackFiles[0];
                 console.log('[FileCompressor] Resuming session:', sessionId);
-                console.log('[FileCompressor] Using file path:', filePath);
-                
-                // ✅ Reset pause ref when resuming
-                isPausedRef.current = false;
-                
                 setProcessing(true);
                 setShowSessionDialog(false);
-                // Clear paused status
-                setCrackStats(prev => ({ ...prev, status: null, current: 'Resuming...' }));
-                
-                // ✅ Pass the file path to backend (can be null, backend will use session data)
-                const result = await window.api.zipCrackResume(sessionId, filePath);
+                const result = await window.api.zipCrackResume(sessionId);
                 if (result?.success) {
-                    // ✅ Update both jobId and sessionId
                     setCrackJobId(result.jobId || sessionId);
-                    setCrackSessionId(sessionId); // Keep the same sessionId
                     toast.success('✅ Session resumed');
                 } else {
                     setProcessing(false);
-                    toast.error('❌ Failed to resume session: ' + (result?.error || 'Unknown error'));
+                    toast.error('❌ Failed to resume session');
                 }
             } catch (error) {
                 console.error('[FileCompressor] Failed to resume session:', error);
@@ -461,16 +370,7 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
         }
     };
     
-    const reset = () => { 
-        setFiles([]); 
-        setProgress({}); 
-        setFoundPassword(null); 
-        setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: minLength, current: '', eta: 0, tested: 0, total: 0 }); 
-        setCompletedOutputPath(null); 
-        setExtractCompletedPath(null);
-        setCrackJobId(null); // ✅ Clear jobId
-        setCrackSessionId(null); // ✅ Clear sessionId
-    };
+    const reset = () => { setFiles([]); setProgress({}); setFoundPassword(null); setCrackStats({ speed: 0, attempts: 0, progress: 0, currentLength: 1, current: '', eta: 0, tested: 0, total: 0 }); setCompletedOutputPath(null); setExtractCompletedPath(null); };
     
     // Helper functions for formatting statistics
     const formatSpeed = (speed) => {
@@ -823,24 +723,11 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => {
-                                            console.log('[FileCompressor] Open Folder button clicked');
-                                            // Temporarily disabled to debug
-                                            // if (completedOutputPath) {
-                                            //     console.log('[FileCompressor] Opening folder:', completedOutputPath);
-                                            //     window.api.openFolder(completedOutputPath).catch(err => {
-                                            //         console.error('[FileCompressor] Failed to open folder:', err);
-                                            //     });
-                                            // }
-                                            toast.success('✅ Open Folder feature temporarily disabled for debugging');
-                                        }} 
+                                        <button onClick={() => window.api.openFolder(completedOutputPath)} 
                                             className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2">
                                             {Icons.folderOpen} Open Folder
                                         </button>
-                                        <button onClick={() => {
-                                            console.log('[FileCompressor] New button clicked');
-                                            reset();
-                                        }} 
+                                        <button onClick={reset} 
                                             className="px-4 py-2 rounded-xl bg-emerald-100 dark:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 text-sm font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
                                             New
                                         </button>
@@ -861,24 +748,11 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => {
-                                            console.log('[FileCompressor] Open Folder button clicked (extract)');
-                                            // Temporarily disabled to debug
-                                            // if (extractCompletedPath) {
-                                            //     console.log('[FileCompressor] Opening folder:', extractCompletedPath);
-                                            //     window.api.openFolder(extractCompletedPath).catch(err => {
-                                            //         console.error('[FileCompressor] Failed to open folder:', err);
-                                            //     });
-                                            // }
-                                            toast.success('✅ Open Folder feature temporarily disabled for debugging');
-                                        }} 
+                                        <button onClick={() => window.api.openFolder(extractCompletedPath)} 
                                             className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2">
                                             {Icons.folderOpen} Open Folder
                                         </button>
-                                        <button onClick={() => {
-                                            console.log('[FileCompressor] New button clicked (extract)');
-                                            reset();
-                                        }} 
+                                        <button onClick={reset} 
                                             className="px-4 py-2 rounded-xl bg-emerald-100 dark:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 text-sm font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
                                             New
                                         </button>
@@ -890,13 +764,11 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
                             {processing && mode === 'crack' && (
                                 <div className="p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-4">
                                     <div className="flex items-center gap-3">
-                                        <div className={`w-10 h-10 rounded-xl bg-[#E3F2FD] dark:bg-blue-900/30 flex items-center justify-center text-[#2196F3] ${crackStats.status === 'paused' ? '' : 'animate-pulse'}`}>
+                                        <div className="w-10 h-10 rounded-xl bg-[#E3F2FD] dark:bg-blue-900/30 flex items-center justify-center text-[#2196F3] animate-pulse">
                                             {Icons.key}
                                         </div>
                                         <div className="flex-1">
-                                            <p className="font-medium text-slate-800 dark:text-white">
-                                                {crackStats.status === 'paused' ? 'Cracking paused' : 'Cracking in progress...'}
-                                            </p>
+                                            <p className="font-medium text-slate-800 dark:text-white">Cracking in progress...</p>
                                             <p className="text-xs text-slate-500">{crackMethod || 'Initializing'}</p>
                                         </div>
                                     </div>
@@ -904,9 +776,7 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
                                     {/* Current Password Display */}
                                     {crackStats.current && (
                                         <div className="px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
-                                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                                                {crackStats.status === 'paused' ? 'Status' : 'Trying'}
-                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Trying</p>
                                             <p className="font-mono text-lg text-slate-800 dark:text-white truncate">{crackStats.current}</p>
                                         </div>
                                     )}
@@ -986,29 +856,9 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
                                                 </button>
                                             </>
                                         ) : (
-                                            <div className="flex items-center gap-2">
-                                                {mode === 'crack' && crackStats.status === 'paused' ? (
-                                                    // Show Resume button when paused - use sessionId and current file path
-                                                    <button onClick={() => handleResume(crackSessionId, crackFiles[0])} className="px-6 py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-medium transition-colors flex items-center gap-2">
-                                                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                                                            <path d="M8 5v14l11-7z" />
-                                                        </svg>
-                                                        Resume
-                                                    </button>
-                                                ) : mode === 'crack' && crackStats.status !== 'paused' && (
-                                                    // Show Pause button when running
-                                                    <button onClick={handlePause} className="px-6 py-2.5 rounded-xl bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-medium transition-colors flex items-center gap-2">
-                                                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                                                            <rect x="6" y="5" width="4" height="14" rx="1" />
-                                                            <rect x="14" y="5" width="4" height="14" rx="1" />
-                                                        </svg>
-                                                        Pause
-                                                    </button>
-                                                )}
-                                                <button onClick={handleCancel} className="px-6 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors flex items-center gap-2">
-                                                    {Icons.stop} Stop
-                                                </button>
-                                            </div>
+                                            <button onClick={handleCancel} className="px-6 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors flex items-center gap-2">
+                                                {Icons.stop} Stop
+                                            </button>
                                         )}
                                     </div>
                                 </div>
@@ -1018,61 +868,6 @@ const FileCompressor = ({ pendingFiles = [], onClearPending }) => {
                     </div>
                 </div>
             </div>
-            
-            {/* Session Recovery Dialog */}
-            {showSessionDialog && pendingSessions.length > 0 && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
-                        <div className="p-6 border-b border-slate-200 dark:border-slate-700">
-                            <h2 className="text-xl font-semibold text-slate-800 dark:text-white">Resume Cracking Session</h2>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                                Found {pendingSessions.length} unfinished session{pendingSessions.length > 1 ? 's' : ''}
-                            </p>
-                        </div>
-                        
-                        <div className="flex-1 overflow-auto p-6 space-y-3">
-                            {pendingSessions.map((session) => (
-                                <div key={session.id} className="p-4 rounded-xl bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div className="flex-1 min-w-0">
-                                            <p className="font-medium text-slate-800 dark:text-white truncate">{session.fileName}</p>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                                Progress: {session.progress}% • Last updated: {new Date(session.lastUpdateTime).toLocaleString()}
-                                            </p>
-                                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 truncate">
-                                                {session.filePath}
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => handleResume(session.id, session.filePath)}
-                                                className="px-4 py-2 bg-[#2196F3] hover:bg-[#1E88E5] text-white text-sm font-medium rounded-lg transition-colors"
-                                            >
-                                                Resume
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteSession(session.id)}
-                                                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
-                                            >
-                                                Delete
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        
-                        <div className="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end">
-                            <button
-                                onClick={() => setShowSessionDialog(false)}
-                                className="px-6 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white text-sm font-medium rounded-xl transition-colors"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

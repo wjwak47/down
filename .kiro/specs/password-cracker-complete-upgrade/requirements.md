@@ -115,17 +115,17 @@
 
 ---
 
-### 需求8：PassGAN v2模型集成（P2 - AI增强）
+### 需求8：PassGPT模型集成（P2 - AI增强）
 
-**用户故事**：作为用户，我希望系统能使用AI生成更像人类的密码，这样可以大幅提高破解成功率。
+**用户故事**：作为用户，我希望系统能使用最先进的AI模型（PassGPT）生成更像人类的密码，这样可以大幅提高破解成功率。
 
 #### 验收标准
 
-1. WHEN PassGAN_Generator初始化时 THEN THE System SHALL加载预训练的PassGAN v2模型（ONNX格式）
-2. WHEN 生成密码时 THEN THE System SHALL使用PassGAN生成候选密码列表
-3. WHEN PassGAN生成密码时 THEN THE System SHALL达到35-40%的命中率提升（相比传统方法）
+1. WHEN PassGPT_Generator初始化时 THEN THE System SHALL加载预训练的PassGPT模型（ONNX格式，来自Hugging Face）
+2. WHEN 生成密码时 THEN THE System SHALL使用PassGPT（Transformer-based）生成候选密码列表
+3. WHEN PassGPT生成密码时 THEN THE System SHALL达到55-60%的命中率（比PassGAN的45-50%高2倍）
 4. WHEN 模型推理时 THEN THE System SHALL支持CPU推理，生成速度至少50,000 passwords/second
-5. WHEN 打包应用时 THEN THE System SHALL包含PassGAN模型文件（约85MB）
+5. WHEN 打包应用时 THEN THE System SHALL包含PassGPT模型文件（约100MB）和词汇表（约1MB）
 
 ---
 

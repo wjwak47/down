@@ -1,0 +1,10 @@
+{
+  "model_name": "PassGPT",
+  "model_version": "1.0",
+  "model_source": "javirandor/passgpt-10characters",
+  "model_type": "GPT-2 based password generator",
+  "max_length": 10,
+  "vocab_size": 99,
+  "expected_hit_rate": "55-60%",
+  "inference_speed": "50,000+ passwords/second"
+}

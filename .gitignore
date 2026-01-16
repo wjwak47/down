@@ -30,3 +30,8 @@ temp-*
 resources/bin-win/
 resources/bin-mac/
 
+# Large model files - downloaded separately
+resources/models/*.pt
+resources/models/*.onnx
+resources/models/*.bin
+

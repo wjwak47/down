@@ -26,6 +26,20 @@ function App() {
     const [pendingFiles, setPendingFiles] = useState([]);
     const [pendingUrl, setPendingUrl] = useState('');
 
+    // Debug: Log page changes
+    useEffect(() => {
+        console.log('[App] Current page changed to:', currentPage);
+    }, [currentPage]);
+
+    // Prevent accidental page navigation
+    const handleSetCurrentPage = (page) => {
+        console.log('[App] setCurrentPage called with:', page, 'current:', currentPage);
+        if (page !== currentPage) {
+            console.log('[App] Changing page from', currentPage, 'to', page);
+            setCurrentPage(page);
+        }
+    };
+
     // Dynamic title based on active page
     useEffect(() => {
         const pageTitles = {

@@ -16,12 +16,64 @@ archiver.registerFormat('zip-encrypted', archiverZipEncrypted);
 
 import { smartPasswordGenerator, SMART_DICTIONARY, applyRules } from './smartCracker.js';
 import BatchTestManager from './batchTestManager.js';
+import SessionManager from './sessionManager.js';
+import StatsCollector from './statsCollector.js';
+import StrategySelector from './strategySelector.js';
+// Use Python-based PassGPT generator (fallback when ONNX conversion fails)
+import PassGPTGenerator from './ai/passgptGeneratorPython.js';
 
 const pathTo7zip = sevenBin.path7za;
 const crackSessions = new Map();
+const sessionManager = new SessionManager();
 const NUM_WORKERS = Math.max(1, os.cpus().length - 1);
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
+
+// Helper function to send progress with stats
+function sendCrackProgress(event, id, session, updates = {}) {
+    if (!session.stats) return;
+    
+    const { attempts, speed, current, method, currentLength } = updates;
+    
+    if (attempts !== undefined) {
+        session.stats.updateProgress(attempts, session.sessionData?.totalPasswords || 0);
+    }
+    // Only update speed if it's a positive number (don't reset to 0)
+    if (speed !== undefined && speed > 0) {
+        session.stats.updateSpeed(speed);
+    }
+    if (current !== undefined && session.currentPhase !== undefined) {
+        session.stats.startPhase(current, 9); // 9 total phases (0-8)
+    }
+    
+    const stats = session.stats.getSimpleStats();
+    
+    // ✅ Helper to send IPC messages (works with both ipcMain.on and ipcMain.handle)
+    const sendReply = (channel, data) => {
+        if (event.reply) {
+            event.reply(channel, data);
+        } else if (event.sender && event.sender.send) {
+            event.sender.send(channel, data);
+        } else {
+            console.error('[Crack] Cannot send reply - no valid method available');
+        }
+    };
+    
+    sendReply('zip:crack-progress', {
+        id,
+        sessionId: session.sessionId, // ✅ Include sessionId for resume functionality
+        attempts: session.stats.testedPasswords,
+        speed: session.stats.currentSpeed,
+        current: current || stats.phase,
+        method: method || stats.phase,
+        currentLength: currentLength || session.currentLength || 1,
+        // Additional stats
+        progress: stats.progress,
+        eta: stats.eta,
+        tested: stats.tested,
+        total: stats.total
+    });
+}
 
 // ============ Cross-platform tool paths ============
 function getHashcatPath() {
@@ -102,7 +154,7 @@ function getSystem7zPath() {
 
 // ============ Encryption Detection ============
 async function detectEncryption(archivePath) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         const ext = path.extname(archivePath).toLowerCase();
         const isRar = ext === '.rar';
         
@@ -110,12 +162,30 @@ async function detectEncryption(archivePath) {
         const system7z = getSystem7zPath();
         const use7z = (isRar && system7z) ? system7z : pathTo7zip;
         
+        console.log('[detectEncryption] Starting detection for:', archivePath);
+        console.log('[detectEncryption] Using 7z:', use7z);
+        
         const proc = spawn(use7z, ['l', '-slt', '-p', archivePath], { windowsHide: true });
         let output = '';
+        let resolved = false;
+        
+        // Add timeout to prevent hanging
+        const timeout = setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                console.log('[detectEncryption] Timeout - killing process');
+                try { proc.kill(); } catch(e) {}
+                resolve({ method: 'Unknown', format: 'unknown', isZipCrypto: false, isAES: false, canUseBkcrack: false, canUseHashcat: false, recommendation: 'cpu' });
+            }
+        }, 10000); // 10 second timeout
+        
         proc.stdout.on('data', (data) => { output += data.toString(); });
         proc.stderr.on('data', (data) => { output += data.toString(); });
         
         proc.on('close', () => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timeout);
             // File type detection
             const isZip = ext === '.zip';
             const is7z = ext === '.7z';
@@ -228,6 +298,9 @@ async function detectEncryption(archivePath) {
         });
         
         proc.on('error', (err) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timeout);
             console.log('[detectEncryption] Error:', err.message);
             resolve({ method: 'Unknown', format: 'unknown', isZipCrypto: false, isAES: false, canUseBkcrack: false, canUseHashcat: false, recommendation: 'cpu' });
         });
@@ -281,6 +354,12 @@ async function crackWithCPU(archivePath, options, event, id, session, startTime)
     const { mode, charset, minLength, maxLength, dictionaryPath } = options;
     let totalAttempts = 0, found = null, currentLength = minLength || 1;
     
+    // Initialize stats if not already done
+    if (!session.stats) {
+        session.stats = new StatsCollector(id);
+    }
+    session.stats.startPhase('CPU Batch', 8);
+    
     // 创建批量测试管理器
     const batchManager = new BatchTestManager(100);
     const system7z = getSystem7zPath();
@@ -302,15 +381,15 @@ async function crackWithCPU(archivePath, options, event, id, session, startTime)
                     return;
                 }
                 
-                // 更新进度
+                // 更新进度 - 使用 helper
                 const elapsed = (Date.now() - startTime) / 1000;
-                event.reply('zip:crack-progress', { 
-                    id, 
-                    attempts: totalAttempts, 
-                    speed: elapsed > 0 ? Math.round(totalAttempts / elapsed) : 0, 
-                    current: pwd, 
-                    currentLength, 
-                    method: 'CPU Batch' 
+                const speed = elapsed > 0 ? Math.round(totalAttempts / elapsed) : 0;
+                sendCrackProgress(event, id, session, {
+                    attempts: totalAttempts,
+                    speed,
+                    current: pwd,
+                    method: 'CPU Batch',
+                    currentLength
                 });
                 
                 // 让出事件循环，防止 UI 冻结
@@ -369,12 +448,22 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
     // ??? Worker ?????????????????
     if (!fs.existsSync(workerPath)) {
         console.log('[Crack] Worker not found at:', workerPath, '- fallback to single-thread');
-        event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Starting...', method: 'CPU Single' });
+        sendCrackProgress(event, id, session, {
+            attempts: 0,
+            speed: 0,
+            current: 'Starting...',
+            method: 'CPU Single'
+        });
         return crackWithCPU(archivePath, options, event, id, session, startTime);
     }
     
     console.log('[Crack] Multi-thread CPU mode with', NUM_WORKERS, 'workers');
-    event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Starting workers...', method: 'CPU Multi-thread' });
+    sendCrackProgress(event, id, session, {
+        attempts: 0,
+        speed: 0,
+        current: 'Starting workers...',
+        method: 'CPU Multi-thread'
+    });
     
     let found = null;
     const workers = [];
@@ -411,8 +500,7 @@ async function crackWithMultiThreadCPU(archivePath, options, event, id, session,
                     const elapsed = (Date.now() - startTime) / 1000;
                     const speed = elapsed > 0 ? Math.round(totalAttempts / elapsed) : 0;
                     
-                    event.reply('zip:crack-progress', {
-                        id,
+                    sendCrackProgress(event, id, session, {
                         attempts: totalAttempts,
                         speed,
                         current: msg.current,
@@ -604,15 +692,17 @@ async function extractHash(archivePath, encryption) {
         throw err;
     }
 }
-// ============ GPU 攻击阶段顺序（已优化：短密码暴力破解优先） ============
+// ============ GPU 攻击阶段顺序（优化：AI优先 + 最快+最高命中率优先） ============
 const GPU_ATTACK_PHASES = {
-    1: { name: 'Bruteforce', method: 'Hashcat GPU Bruteforce', description: 'Short Bruteforce (1-4 chars)' },
-    2: { name: 'Dictionary', method: 'Hashcat GPU Dictionary', description: 'Built-in Dictionary' },
+    0: { name: 'AI', method: 'PassGPT AI Generator', description: 'AI Password Generation (PassGPT)' },
+    1: { name: 'Top10K', method: 'Hashcat GPU Top 10K', description: 'Top 10K Common Passwords' },
+    2: { name: 'ShortBrute', method: 'Hashcat GPU Short Bruteforce', description: 'Short Bruteforce (1-4 chars, all printable)' },
     3: { name: 'Keyboard', method: 'Hashcat GPU Keyboard', description: 'Keyboard Patterns' },
-    4: { name: 'Rule', method: 'Hashcat GPU Rule Attack', description: 'Rule Transform' },
-    5: { name: 'Mask', method: 'Hashcat GPU Smart Mask', description: 'Smart Mask' },
-    6: { name: 'Hybrid', method: 'Hashcat GPU Hybrid', description: 'Hybrid Attack' },
-    7: { name: 'CPU', method: 'CPU Smart Dictionary', description: 'CPU Smart Dict' }
+    4: { name: 'Dictionary', method: 'Hashcat GPU Dictionary', description: 'Full Dictionary (14M)' },
+    5: { name: 'Rule', method: 'Hashcat GPU Rule Attack', description: 'Rule Transform' },
+    6: { name: 'Mask', method: 'Hashcat GPU Smart Mask', description: 'Smart Mask' },
+    7: { name: 'Hybrid', method: 'Hashcat GPU Hybrid', description: 'Hybrid Attack' },
+    8: { name: 'CPU', method: 'CPU Smart Dictionary', description: 'CPU Smart Dict' }
 };
 
 // ��������ģʽ - ����������
@@ -682,7 +772,12 @@ async function runHashcatPhase(hashFile, outFile, hashMode, args, phaseName, eve
             if (progressMatch) totalAttempts = previousAttempts + parseInt(progressMatch[1]);
             
             if (lastSpeed > 0) {
-                event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: lastSpeed, current: phaseName, method: GPU_ATTACK_PHASES[session.currentPhase]?.method || phaseName });
+                sendCrackProgress(event, id, session, {
+                    attempts: totalAttempts,
+                    speed: lastSpeed,
+                    current: phaseName,
+                    method: GPU_ATTACK_PHASES[session.currentPhase]?.method || phaseName
+                });
             }
         });
         
@@ -711,7 +806,7 @@ async function runHashcatPhase(hashFile, outFile, hashMode, args, phaseName, eve
     });
 }
 
-// ============ Phase 3: 规则攻击 ============
+// ============ Phase 5: 规则攻击 ============
 async function runRuleAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
     const hashcatDir = getHashcatDir();
     const wordlist = path.join(hashcatDir, 'combined_wordlist.txt');
@@ -722,22 +817,32 @@ async function runRuleAttack(hashFile, outFile, hashMode, event, id, session, pr
         return { found: null, attempts: previousAttempts, exhausted: true };
     }
     
-    session.currentPhase = 3;
-    event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: 'Starting rule attack...', method: 'Hashcat GPU Rule Attack' });
+    session.currentPhase = 5;
+    sendCrackProgress(event, id, session, {
+        attempts: previousAttempts,
+        speed: 0,
+        current: 'Starting rule attack...',
+        method: 'Hashcat GPU Rule Attack'
+    });
     
     const args = ['-a', '0', '-r', rulePath, wordlist];
     return runHashcatPhase(hashFile, outFile, hashMode, args, 'Rule Attack', event, id, session, previousAttempts);
 }
 
-// ============ Phase 4: 智能掩码攻击 ============
+// ============ Phase 6: 智能掩码攻击 ============
 async function runMaskAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
-    session.currentPhase = 4;
+    session.currentPhase = 6;
     let totalAttempts = previousAttempts;
     
     for (const maskConfig of SMART_MASKS) {
         if (!session.active) break;
         
-        event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: `Mask: ${maskConfig.desc}`, method: 'Hashcat GPU Smart Mask' });
+        sendCrackProgress(event, id, session, {
+            attempts: totalAttempts,
+            speed: 0,
+            current: `Mask: ${maskConfig.desc}`,
+            method: 'Hashcat GPU Smart Mask'
+        });
         
         const args = ['-a', '3', maskConfig.mask];
         const result = await runHashcatPhase(hashFile, outFile, hashMode, args, `Mask (${maskConfig.desc})`, event, id, session, totalAttempts);
@@ -749,19 +854,24 @@ async function runMaskAttack(hashFile, outFile, hashMode, event, id, session, pr
     return { found: null, attempts: totalAttempts, exhausted: true };
 }
 
-// ============ Phase 5: 混合攻击 ============
+// ============ Phase 7: 混合攻击 ============
 async function runHybridAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
     const hashcatDir = getHashcatDir();
     const wordlist = path.join(hashcatDir, 'combined_wordlist.txt');
     
-    session.currentPhase = 5;
+    session.currentPhase = 7;
     let totalAttempts = previousAttempts;
     
     // Mode 6: wordlist + mask (word + digits)
     for (const suffix of HYBRID_SUFFIXES) {
         if (!session.active) break;
         
-        event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: `Hybrid: word+${suffix}`, method: 'Hashcat GPU Hybrid' });
+        sendCrackProgress(event, id, session, {
+            attempts: totalAttempts,
+            speed: 0,
+            current: `Hybrid: word+${suffix}`,
+            method: 'Hashcat GPU Hybrid'
+        });
         
         const args = ['-a', '6', wordlist, suffix];
         const result = await runHashcatPhase(hashFile, outFile, hashMode, args, `Hybrid (word+${suffix})`, event, id, session, totalAttempts);
@@ -772,7 +882,12 @@ async function runHybridAttack(hashFile, outFile, hashMode, event, id, session, 
     
     // Mode 7: mask + wordlist (digits + word) - ֻ��һ��
     if (session.active) {
-        event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: 'Hybrid: ?d?d?d?d+word', method: 'Hashcat GPU Hybrid' });
+        sendCrackProgress(event, id, session, {
+            attempts: totalAttempts,
+            speed: 0,
+            current: 'Hybrid: ?d?d?d?d+word',
+            method: 'Hashcat GPU Hybrid'
+        });
         
         const args = ['-a', '7', '?d?d?d?d', wordlist];
         const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Hybrid (?d?d?d?d+word)', event, id, session, totalAttempts);
@@ -785,10 +900,10 @@ async function runHybridAttack(hashFile, outFile, hashMode, event, id, session, 
 }
 
 
-// ============ Phase 2: 键盘模式攻击（已优化到Phase 2） ============
+// ============ Phase 3: 键盘模式攻击 ============
 async function runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
     const hashcatDir = getHashcatDir();
-    session.currentPhase = 2;
+    session.currentPhase = 3;
     
     // ������ʱ����ģʽ�ֵ�
     const keyboardDict = path.join(hashcatDir, 'keyboard_patterns.txt');
@@ -809,7 +924,12 @@ async function runKeyboardAttack(hashFile, outFile, hashMode, event, id, session
     fs.writeFileSync(keyboardDict, Array.from(variants).join('\n'));
     console.log(`[Crack] Created keyboard patterns dict with ${variants.size} entries`);
     
-    event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: 'Keyboard patterns attack...', method: 'Hashcat GPU Keyboard' });
+    sendCrackProgress(event, id, session, {
+        attempts: previousAttempts,
+        speed: 0,
+        current: 'Keyboard patterns attack...',
+        method: 'Hashcat GPU Keyboard'
+    });
     
     const args = ['-a', '0', keyboardDict];
     const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Keyboard Patterns', event, id, session, previousAttempts);
@@ -819,82 +939,249 @@ async function runKeyboardAttack(hashFile, outFile, hashMode, event, id, session
     
     return result;
 }
-// ============ Phase 6: 短密码暴力破解 ============
-async function runShortBruteforce(hashFile, outFile, hashMode, event, id, session, previousAttempts, options = {}) {
-    session.currentPhase = 1; // Now Phase 1
+
+// ============ Phase 0: AI Password Generation (PassGPT) - Streaming ============
+async function runAIPhase(archivePath, event, id, session, previousAttempts, startTime, phaseState = {}) {
+    console.log('[Crack] Phase 0: AI Password Generation (PassGPT) - Streaming Mode');
+    session.currentPhase = 0;
     
-    // IMPORTANT: In smart mode, always test 1-4 chars first (fast)
-    // User settings (minLength/maxLength) are only used in pure bruteforce mode
-    const isSmartMode = options.mode !== 'bruteforce';
+    // Streaming configuration
+    const BATCH_SIZE = 100;        // Generate 100 passwords per batch
+    const MAX_BATCHES = 100;       // Maximum 100 batches
+    const TOTAL_LIMIT = 10000;     // Total limit: 10,000 passwords
     
-    let minLen, maxLen;
-    if (isSmartMode) {
-        // Smart mode: Force 1-4 chars (very fast, catches simple passwords)
-        minLen = 1;
-        maxLen = 4;
-        console.log('[Crack] Smart mode: Testing short passwords (1-4 chars) first');
-    } else {
-        // Pure bruteforce mode: Use user settings
-        const { minLength, maxLength } = options;
-        minLen = minLength || 1;
-        maxLen = Math.min(maxLength || 6, 10); // GPU max 10 chars
-        console.log('[Crack] Bruteforce mode: Using user settings (', minLen, '-', maxLen, 'chars)');
+    // Resume from saved batch if available
+    const startBatch = phaseState.batchIndex || 1;
+    console.log('[Crack] AI Phase: Starting from batch', startBatch, '/', MAX_BATCHES);
+    
+    // Check if PassGPT model is available
+    const generator = new PassGPTGenerator();
+    if (!generator.isAvailable()) {
+        console.log('[Crack] PassGPT model not available, skipping AI phase');
+        return { found: null, attempts: previousAttempts, skipped: true };
     }
     
-    // Build hashcat mask based on user charset selection
-    const { charset } = options;
-    let maskChar = '?a'; // default: all printable
-    if (charset) {
-        const hasLower = charset.includes('abcdefghijklmnopqrstuvwxyz'.charAt(0));
-        const hasUpper = charset.includes('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.charAt(0));
-        const hasDigit = charset.includes('0');
-        const hasSpecial = charset.includes('!') || charset.includes('@');
-        
-        if (hasDigit && !hasLower && !hasUpper && !hasSpecial) {
-            maskChar = '?d'; // digits only
-        } else if (hasLower && !hasUpper && !hasDigit && !hasSpecial) {
-            maskChar = '?l'; // lowercase only
-        } else if (hasUpper && !hasLower && !hasDigit && !hasSpecial) {
-            maskChar = '?u'; // uppercase only
-        } else if (hasLower && hasDigit && !hasUpper && !hasSpecial) {
-            maskChar = '?h'; // lowercase + digits (custom charset needed)
-        } else if (hasLower && hasUpper && hasDigit && !hasSpecial) {
-            maskChar = '?a'; // alphanumeric - use ?a for simplicity
-        } else {
-            maskChar = '?a'; // all printable
+    sendCrackProgress(event, id, session, {
+        attempts: previousAttempts,
+        current: 'Loading AI model...',
+        method: 'PassGPT AI Streaming'
+    });
+    
+    try {
+        // Load PassGPT model
+        const loaded = await generator.loadModel();
+        if (!loaded) {
+            console.log('[Crack] Failed to load PassGPT model, skipping AI phase');
+            return { found: null, attempts: previousAttempts, skipped: true };
         }
+        
+        console.log('[Crack] PassGPT model loaded successfully');
+        console.log(`[Crack] Streaming config: ${BATCH_SIZE} pwd/batch, max ${MAX_BATCHES} batches, limit ${TOTAL_LIMIT}`);
+        
+        // Streaming generation and testing
+        const batchManager = new BatchTestManager(100);
+        const system7z = getSystem7zPath();
+        let totalAttempts = previousAttempts;
+        let totalGenerated = (startBatch - 1) * BATCH_SIZE; // Account for already generated passwords
+        let found = null;
+        
+        // Stream: Generate batch → Test batch → Repeat (starting from startBatch)
+        for (let batchNum = startBatch; batchNum <= MAX_BATCHES && !found && session.active; batchNum++) {
+            // Save current batch index to phase state
+            session.phaseState = { batchIndex: batchNum };
+            
+            // Calculate how many passwords to generate in this batch
+            const remaining = TOTAL_LIMIT - totalGenerated;
+            const batchCount = Math.min(BATCH_SIZE, remaining);
+            
+            if (batchCount <= 0) break;
+            
+            // Update progress: Generating (don't send speed: 0 to avoid resetting display)
+            sendCrackProgress(event, id, session, {
+                attempts: totalAttempts,
+                current: `AI Batch ${batchNum}/${MAX_BATCHES}: Generating ${batchCount} passwords...`,
+                method: 'PassGPT AI Streaming'
+            });
+            
+            // Generate one batch of passwords
+            const batchPasswords = await generator.generatePasswords(
+                batchCount,  // Generate batch size
+                1.0,         // Temperature (balanced)
+                50           // Top-K sampling
+            );
+            
+            totalGenerated += batchPasswords.length;
+            console.log(`[Crack] Batch ${batchNum}: Generated ${batchPasswords.length} passwords (total: ${totalGenerated}/${TOTAL_LIMIT})`);
+            
+            // Update progress: Testing (don't send speed: 0 to avoid resetting display)
+            sendCrackProgress(event, id, session, {
+                attempts: totalAttempts,
+                current: `AI Batch ${batchNum}/${MAX_BATCHES}: Testing ${batchPasswords.length} passwords...`,
+                method: 'PassGPT AI Streaming'
+            });
+            
+            // Test this batch immediately
+            for (const pwd of batchPasswords) {
+                if (!session.active || found) break;
+                
+                batchManager.addPassword(pwd);
+                
+                if (batchManager.shouldTest()) {
+                    const result = await batchManager.testBatch(archivePath, system7z);
+                    totalAttempts += result.tested;
+                    
+                    if (result.success) {
+                        found = result.password;
+                        console.log(`[Crack] ✅ Password found in batch ${batchNum}:`, found);
+                        break;
+                    }
+                    
+                    // Update progress with speed
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    const speed = elapsed > 0 ? Math.round((totalAttempts - previousAttempts) / elapsed) : 0;
+                    sendCrackProgress(event, id, session, {
+                        attempts: totalAttempts,
+                        speed,
+                        current: `AI Batch ${batchNum}/${MAX_BATCHES}: ${totalAttempts - previousAttempts}/${totalGenerated} tested`,
+                        method: 'PassGPT AI Streaming'
+                    });
+                    
+                    // Yield to event loop
+                    await new Promise(resolve => setImmediate(resolve));
+                }
+            }
+            
+            // Test remaining passwords in batch
+            if (!found && batchManager.getQueueSize() > 0) {
+                const result = await batchManager.flush(archivePath, system7z);
+                totalAttempts += result.tested;
+                if (result.success) {
+                    found = result.password;
+                    console.log(`[Crack] ✅ Password found in batch ${batchNum} (flush):`, found);
+                }
+            }
+            
+            // Early stop if password found
+            if (found) {
+                console.log(`[Crack] Early stop: Password found after ${batchNum} batches (${totalGenerated} passwords generated)`);
+                break;
+            }
+            
+            // Progress update after batch completion
+            const elapsed = (Date.now() - startTime) / 1000;
+            const speed = elapsed > 0 ? Math.round((totalAttempts - previousAttempts) / elapsed) : 0;
+            console.log(`[Crack] Batch ${batchNum} complete: ${totalAttempts - previousAttempts} tested, ${speed} pwd/s`);
+        }
+        
+        // Release model resources
+        await generator.dispose();
+        
+        if (found) {
+            console.log('[Crack] ✅ AI Phase SUCCESS: Password found:', found);
+            console.log(`[Crack] Stats: ${totalGenerated} generated, ${totalAttempts - previousAttempts} tested`);
+        } else {
+            console.log('[Crack] AI Phase completed: No password found');
+            console.log(`[Crack] Stats: ${totalGenerated} generated, ${totalAttempts - previousAttempts} tested`);
+        }
+        
+        return { found, attempts: totalAttempts };
+        
+    } catch (err) {
+        console.error('[Crack] AI phase error:', err.message);
+        // Graceful degradation - continue to next phase
+        return { found: null, attempts: previousAttempts, error: true };
+    }
+}
+
+// ============ Phase 1: Top 10K常见密码攻击 ============
+async function runTop10KAttack(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
+    const hashcatDir = getHashcatDir();
+    session.currentPhase = 1;
+    
+    // 使用字典的前10K行作为Top 10K常见密码
+    let dictPath = path.join(hashcatDir, 'rockyou.txt');
+    if (!fs.existsSync(dictPath)) {
+        dictPath = path.join(hashcatDir, 'combined_wordlist.txt');
     }
     
-    // Always use custom charset (-1) for precise control
-    let args;
-    if (charset && charset.length > 0) {
-        // Use user's exact charset as custom charset
-        const mask = '?1'.repeat(maxLen);
-        args = ['-a', '3', '-1', charset, '--increment', '--increment-min=' + minLen, '--increment-max=' + maxLen, mask];
-    } else {
-        // Default: all printable characters
-        const mask = '?a'.repeat(maxLen);
-        args = ['-a', '3', '--increment', '--increment-min=' + minLen, '--increment-max=' + maxLen, mask];
+    if (!fs.existsSync(dictPath)) {
+        console.log('[Crack] No dictionary found for Top 10K attack, skipping');
+        return { found: null, attempts: previousAttempts, exhausted: true };
     }
     
-    const charsetDesc = charset ? charset.substring(0, 20) + (charset.length > 20 ? '...' : '') : 'all chars';
-    const modeDesc = isSmartMode ? 'Short Password Test' : 'User Bruteforce';
-    event.reply('zip:crack-progress', { id, attempts: previousAttempts, speed: 0, current: `${modeDesc} (${minLen}-${maxLen} chars, ${charsetDesc})...`, method: 'Hashcat GPU Bruteforce' });
+    // 创建临时Top 10K字典文件
+    const top10kDict = path.join(hashcatDir, 'top10k_temp.txt');
+    try {
+        const fullDict = fs.readFileSync(dictPath, 'utf-8');
+        const lines = fullDict.split('\n').filter(l => l.trim()).slice(0, 10000);
+        fs.writeFileSync(top10kDict, lines.join('\n'));
+        console.log('[Crack] Created Top 10K dictionary with', lines.length, 'passwords');
+    } catch (err) {
+        console.log('[Crack] Failed to create Top 10K dictionary:', err.message);
+        return { found: null, attempts: previousAttempts, exhausted: true };
+    }
     
-    console.log('[Crack]', modeDesc, '- charset:', charsetDesc, 'length:', minLen, '-', maxLen);
+    sendCrackProgress(event, id, session, {
+        attempts: previousAttempts,
+        speed: 0,
+        current: 'Top 10K common passwords...',
+        method: 'Hashcat GPU Top 10K'
+    });
+    
+    const args = ['-a', '0', top10kDict];
+    const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Top 10K', event, id, session, previousAttempts);
+    
+    // 清理临时文件
+    try { fs.unlinkSync(top10kDict); } catch(e) {}
+    
+    return result;
+}
+
+// ============ Phase 2: 1-4位短密码暴力破解 ============
+async function runShortBruteforce(hashFile, outFile, hashMode, event, id, session, previousAttempts) {
+    session.currentPhase = 2;
+    
+    // 固定测试1-4位，使用所有可打印字符（包括特殊字符）
+    const minLen = 1;
+    const maxLen = 4;
+    
+    // 使用hashcat内置的?a（所有可打印ASCII字符，共95个）
+    // 包括：数字、大小写字母、所有特殊字符
+    console.log('[Crack] Phase 2: Short Bruteforce (1-4 chars, all printable characters)');
+    console.log('[Crack] Character set: 0-9, a-z, A-Z, and all special characters (!@#$%^&*()_+-=[]{}|;:\',.<>?/~` etc.)');
+    console.log('[Crack] Total passwords: ~81M (1位:95, 2位:9K, 3位:857K, 4位:81.4M)');
+    
+    sendCrackProgress(event, id, session, {
+        attempts: previousAttempts,
+        speed: 0,
+        current: 'Short Bruteforce (1-4 chars, all characters)...',
+        method: 'Hashcat GPU Short Bruteforce'
+    });
+    
+    // 使用?a表示所有可打印ASCII字符（95个字符）
+    const mask = '?a'.repeat(maxLen);
+    const args = [
+        '-a', '3',                          // 暴力破解模式
+        '--increment',                      // 递增模式
+        '--increment-min=' + minLen,        // 最小长度1
+        '--increment-max=' + maxLen,        // 最大长度4
+        mask                                // 掩码：?a?a?a?a
+    ];
+    
     console.log('[Crack] Hashcat args:', args.join(' '));
     
-    return runHashcatPhase(hashFile, outFile, hashMode, args, modeDesc, event, id, session, previousAttempts);
+    return runHashcatPhase(hashFile, outFile, hashMode, args, 'Short Bruteforce (1-4)', event, id, session, previousAttempts);
 }
 
 
-// ============ GPU Bruteforce �����ƽ⺯�� ============
+// ============ GPU Bruteforce 用户自定义模式（Custom模式专用）============
 async function runHashcatBruteforce(archivePath, encryption, options, event, id, session, startTime, previousAttempts = 0) {
     const { charset, minLength, maxLength } = options;
     const hashcatPath = getHashcatPath();
     const hashcatDir = getHashcatDir();
     
-    console.log('[Crack] Starting GPU bruteforce attack');
+    console.log('[Crack] Starting GPU bruteforce attack (Custom mode)');
+    console.log('[Crack] User settings - charset:', charset ? charset.substring(0, 30) + '...' : 'default', 'length:', minLength, '-', maxLength);
     
     let hash;
     try {
@@ -913,35 +1200,49 @@ async function runHashcatBruteforce(archivePath, encryption, options, event, id,
     return new Promise((resolve) => {
         const hashMode = encryption.hashcatMode || '17200';
         
-        // �������� - �����ַ���
-        const cs = charset || 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        let maskChar = '?a'; // Ĭ�����пɴ�ӡ�ַ�
-        if (cs === 'abcdefghijklmnopqrstuvwxyz0123456789') {
-            maskChar = '?l?d'; // Сд+����
-        } else if (cs.includes('A') && cs.includes('a') && cs.includes('0')) {
-            maskChar = '?a'; // ����
-        } else if (cs.includes('a') && !cs.includes('A')) {
-            maskChar = '?l'; // ��Сд
-        }
-        
         const minLen = minLength || 1;
-        const maxLen = Math.min(maxLength || 8, 10); // GPU �������10λ
+        const maxLen = Math.min(maxLength || 8, 10); // GPU 最大支持10位
         
-        // ʹ������ģʽ�Ӷ̵�������
-        const args = [
-            '-m', hashMode,
-            '-a', '3',  // ����/����ģʽ
-            hashFile,
-            '-o', outFile,
-            '--potfile-disable',
-            '-w', '3',
-            '--status',
-            '--status-timer=2',
-            '--increment',
-            '--increment-min=' + minLen,
-            '--increment-max=' + maxLen,
-            '?a?a?a?a?a?a?a?a?a?a'.substring(0, maxLen * 2) // ����
-        ];
+        // 构建hashcat参数 - 使用用户自定义字符集
+        let args;
+        if (charset && charset.length > 0) {
+            // 用户提供了自定义字符集，使用-1参数
+            const mask = '?1'.repeat(maxLen);
+            args = [
+                '-m', hashMode,
+                '-a', '3',                      // 暴力破解模式
+                '-1', charset,                  // 自定义字符集
+                hashFile,
+                '-o', outFile,
+                '--potfile-disable',
+                '-w', '3',
+                '--status',
+                '--status-timer=2',
+                '--increment',
+                '--increment-min=' + minLen,
+                '--increment-max=' + maxLen,
+                mask                            // 使用自定义字符集的掩码
+            ];
+            console.log('[Crack] Using custom charset:', charset.length, 'characters');
+        } else {
+            // 没有提供字符集，使用默认的?a（所有可打印字符）
+            const mask = '?a'.repeat(maxLen);
+            args = [
+                '-m', hashMode,
+                '-a', '3',                      // 暴力破解模式
+                hashFile,
+                '-o', outFile,
+                '--potfile-disable',
+                '-w', '3',
+                '--status',
+                '--status-timer=2',
+                '--increment',
+                '--increment-min=' + minLen,
+                '--increment-max=' + maxLen,
+                mask                            // 使用默认字符集的掩码
+            ];
+            console.log('[Crack] Using default charset: all printable characters');
+        }
         
         console.log('[Crack] GPU Bruteforce command:', hashcatPath, args.join(' '));
         console.log('[Crack] Bruteforce range:', minLen, '-', maxLen, 'characters');
@@ -954,7 +1255,7 @@ async function runHashcatBruteforce(archivePath, encryption, options, event, id,
         proc.stdout.on('data', (data) => {
             const line = data.toString();
             
-            // �����ٶ�
+            // 解析速度
             const speedMatch = line.match(/Speed[^:]*:\s*([\d.]+)\s*([kMGT]?)H\/s/i);
             if (speedMatch) {
                 let speed = parseFloat(speedMatch[1]);
@@ -965,22 +1266,21 @@ async function runHashcatBruteforce(archivePath, encryption, options, event, id,
                 lastSpeed = Math.round(speed);
             }
             
-            // ��������
+            // 解析进度
             const progressMatch = line.match(/Progress[^:]*:\s*(\d+)/i);
             if (progressMatch) totalAttempts = previousAttempts + parseInt(progressMatch[1]);
             
-            // ������ǰ����
-            const lengthMatch = line.match(/Guess\.Mask[^:]*:\s*\?a{(\d+)}/i);
+            // 解析当前长度
+            const lengthMatch = line.match(/Guess\.Mask[^:]*:\s*\?[a1]{(\d+)}/i);
             if (lengthMatch) currentLength = parseInt(lengthMatch[1]);
             
             if (lastSpeed > 0) {
-                event.reply('zip:crack-progress', { 
-                    id, 
-                    attempts: totalAttempts, 
-                    speed: lastSpeed, 
-                    current: `GPU bruteforce (${currentLength} chars)...`, 
-                    method: 'Hashcat GPU Bruteforce',
-                    currentLength 
+                sendCrackProgress(event, id, session, {
+                    attempts: totalAttempts,
+                    speed: lastSpeed,
+                    current: `Custom bruteforce (${currentLength} chars)...`,
+                    method: 'Hashcat GPU Custom Bruteforce',
+                    currentLength
                 });
             }
         });
@@ -988,7 +1288,7 @@ async function runHashcatBruteforce(archivePath, encryption, options, event, id,
         proc.stderr.on('data', (data) => { 
             const msg = data.toString();
             if (!msg.includes('nvmlDeviceGetFanSpeed')) {
-                console.log('[Hashcat Brute]', msg); 
+                console.log('[Hashcat Custom Brute]', msg); 
             }
         });
         
@@ -1001,18 +1301,18 @@ async function runHashcatBruteforce(archivePath, encryption, options, event, id,
             }
             try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
             
-            console.log('[Crack] GPU bruteforce finished, code:', code, 'found:', !!found);
+            console.log('[Crack] Custom GPU bruteforce finished, code:', code, 'found:', !!found);
             resolve({ found, attempts: totalAttempts });
         });
         
         proc.on('error', (err) => {
-            console.log('[Crack] GPU bruteforce error:', err.message);
+            console.log('[Crack] Custom GPU bruteforce error:', err.message);
             try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
             resolve({ found: null, attempts: totalAttempts });
         });
     });
 }
-// ============ Hashcat GPU ������ˮ�� ============
+// ============ Hashcat GPU 破解主流程 ============
 async function crackWithHashcat(archivePath, options, event, id, session, startTime, encryption = null) {
     const hashcatPath = getHashcatPath();
     const hashcatDir = getHashcatDir();
@@ -1021,29 +1321,66 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
 
     console.log('[Crack] Attack mode selected:', attackMode, '- Skip dictionary phases:', isBruteforceMode);
 
-    if (!fs.existsSync(hashcatPath)) {
-        console.log('[Crack] Hashcat not available, falling back to CPU');
-        return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
-    }
-
+    const hashcatAvailable = fs.existsSync(hashcatPath);
+    
     if (!encryption) {
         encryption = await detectEncryption(archivePath);
     }
 
-    console.log('[Crack] Starting GPU crack pipeline, format:', encryption.format, 'mode:', encryption.hashcatMode);
+    console.log('[Crack] Starting GPU/AI crack pipeline, format:', encryption.format, 'hashcat:', hashcatAvailable);
     
-    // ��ȡ hash
+    let totalAttempts = 0;
+    session.currentPhase = 0;
+
+    // ========== Phase 0: AI Password Generation (PassGPT)（几分钟，55-60%命中率）==========
+    // AI Phase 不需要 hashcat，可以独立运行
+    if (session.active && !isBruteforceMode) {
+        console.log('[Crack] Phase 0: AI Password Generation (PassGPT)');
+        const result = await runAIPhase(archivePath, event, id, session, totalAttempts, startTime);
+        totalAttempts = result.attempts;
+        
+        if (result.found) {
+            return { found: result.found, attempts: totalAttempts };
+        }
+        
+        if (result.skipped) {
+            console.log('[Crack] AI phase skipped (model not available)');
+        } else if (result.error) {
+            console.log('[Crack] AI phase encountered error, continuing to traditional methods');
+        }
+    } else if (isBruteforceMode) {
+        console.log('[Crack] Skipping Phase 0 (AI) - Bruteforce mode selected');
+    }
+    
+    // 如果 hashcat 不可用，在运行完 AI Phase 后降级到 CPU
+    if (!hashcatAvailable || !encryption.canUseHashcat) {
+        console.log('[Crack] Hashcat not available or file too large, falling back to CPU after AI phase');
+        sendCrackProgress(event, id, session, {
+            attempts: totalAttempts,
+            speed: 0,
+            current: 'Continuing with CPU...',
+            method: 'CPU Multi-thread'
+        });
+        return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+    }
+    
+    // 提取 hash（只有在 hashcat 可用时才需要）
     let hash;
     try {
         hash = await extractHash(archivePath, encryption);
         console.log('[Crack] Extracted hash:', hash.substring(0, 50) + '...');
     } catch (err) {
         console.log('[Crack] Hash extraction failed:', err.message);
-        event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Hash extraction failed, using CPU...', method: 'CPU Multi-thread' });
+        sendCrackProgress(event, id, session, {
+            attempts: totalAttempts,
+            speed: 0,
+            current: 'Hash extraction failed, using CPU...',
+            method: 'CPU Multi-thread'
+        });
         return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
     }
 
-    // ������ʱ�ļ�
+    // 创建临时文件
     const tempDir = path.join(os.tmpdir(), 'hashcat-pipeline-' + Date.now());
     fs.mkdirSync(tempDir, { recursive: true });
     const hashFile = path.join(tempDir, 'hash.txt');
@@ -1051,14 +1388,29 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
     fs.writeFileSync(hashFile, hash);
 
     const hashMode = encryption.hashcatMode || '17200';
-    let totalAttempts = 0;
-    session.currentPhase = 1;
 
     try {
-        // ========== Phase 1: Short Bruteforce (1-4 chars) - 最快，优先测试 ==========
+        // Update phase counter
+        session.currentPhase = 1;
+
+        // ========== Phase 1: Top 10K常见密码（几秒，40%命中率）==========
+        if (session.active && !isBruteforceMode) {
+            console.log('[Crack] Phase 1: Top 10K Common Passwords');
+            const result = await runTop10KAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+            totalAttempts = result.attempts;
+            
+            if (result.found) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return { found: result.found, attempts: totalAttempts };
+            }
+        } else if (isBruteforceMode) {
+            console.log('[Crack] Skipping Phase 1 (Top 10K) - Bruteforce mode selected');
+        }
+
+        // ========== Phase 2: 1-4位暴力破解（几秒到几分钟，15%命中率）==========
         if (session.active) {
-            console.log('[Crack] Phase 1: Short Bruteforce (1-4 chars) - Testing short passwords first');
-            const result = await runShortBruteforce(hashFile, outFile, hashMode, event, id, session, totalAttempts, options);
+            console.log('[Crack] Phase 2: Short Bruteforce (1-4 chars)');
+            const result = await runShortBruteforce(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
             if (result.found) {
@@ -1067,38 +1419,9 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
             }
         }
 
-        // ========== Phase 2: Dictionary Attack (skip in bruteforce mode) ==========
-        if (session.active && !isBruteforceMode) {
-            console.log('[Crack] Phase 2: Dictionary Attack');
-            session.currentPhase = 2;
-            event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: 'Starting dictionary attack...', method: 'Hashcat GPU Dictionary' });
-
-            // Use rockyou.txt (14M passwords) or combined_wordlist.txt
-            let dictPath = path.join(hashcatDir, 'rockyou.txt');
-            if (!fs.existsSync(dictPath)) {
-                dictPath = path.join(hashcatDir, 'combined_wordlist.txt');
-            }
-            const builtinDict = dictPath;
-            console.log('[Crack] Using dictionary:', path.basename(builtinDict));
-
-            if (fs.existsSync(builtinDict)) {
-                const args = ['-a', '0', builtinDict];
-                const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Dictionary', event, id, session, totalAttempts);
-                totalAttempts = result.attempts;
-
-                if (result.found) {
-                    fs.rmSync(tempDir, { recursive: true, force: true });
-                    return { found: result.found, attempts: totalAttempts };
-                }
-            }
-        } else if (isBruteforceMode) {
-            console.log('[Crack] Skipping Phase 2 (Dictionary) - Bruteforce mode selected');
-        }
-
-        // ========== Phase 3: 键盘模式攻击 ==========
+        // ========== Phase 3: 键盘模式（1-2分钟，20%命中率）==========
         if (session.active) {
             console.log('[Crack] Phase 3: Keyboard Patterns Attack');
-            session.currentPhase = 3;
             const result = await runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
@@ -1108,10 +1431,41 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
             }
         }
 
-        // ========== Phase 4: 规则攻击 (skip in bruteforce mode) ==========
+        // ========== Phase 4: 完整字典14M（10-30分钟，10-15%命中率）==========
         if (session.active && !isBruteforceMode) {
-            console.log('[Crack] Phase 4: Rule Attack');
+            console.log('[Crack] Phase 4: Full Dictionary Attack (14M passwords)');
             session.currentPhase = 4;
+            sendCrackProgress(event, id, session, {
+                attempts: totalAttempts,
+                speed: 0,
+                current: 'Full dictionary attack...',
+                method: 'Hashcat GPU Dictionary'
+            });
+
+            // Use rockyou.txt (14M passwords) or combined_wordlist.txt
+            let dictPath = path.join(hashcatDir, 'rockyou.txt');
+            if (!fs.existsSync(dictPath)) {
+                dictPath = path.join(hashcatDir, 'combined_wordlist.txt');
+            }
+            console.log('[Crack] Using dictionary:', path.basename(dictPath));
+
+            if (fs.existsSync(dictPath)) {
+                const args = ['-a', '0', dictPath];
+                const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Full Dictionary', event, id, session, totalAttempts);
+                totalAttempts = result.attempts;
+
+                if (result.found) {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    return { found: result.found, attempts: totalAttempts };
+                }
+            }
+        } else if (isBruteforceMode) {
+            console.log('[Crack] Skipping Phase 4 (Full Dictionary) - Bruteforce mode selected');
+        }
+
+        // ========== Phase 5: 规则变换（30-60分钟，5-10%命中率）==========
+        if (session.active && !isBruteforceMode) {
+            console.log('[Crack] Phase 5: Rule Attack');
             const result = await runRuleAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
 
@@ -1120,13 +1474,12 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
                 return { found: result.found, attempts: totalAttempts };
             }
         } else if (isBruteforceMode) {
-            console.log('[Crack] Skipping Phase 4 (Rule) - Bruteforce mode selected');
+            console.log('[Crack] Skipping Phase 5 (Rule) - Bruteforce mode selected');
         }
 
-        // ========== Phase 5: 智能掩码攻击 ==========
+        // ========== Phase 6: 智能掩码（数小时，<5%命中率）==========
         if (session.active) {
-            console.log('[Crack] Phase 5: Smart Mask Attack');
-            session.currentPhase = 5;
+            console.log('[Crack] Phase 6: Smart Mask Attack');
             const result = await runMaskAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
@@ -1136,10 +1489,9 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
             }
         }
 
-        // ========== Phase 6: 混合攻击 ==========
+        // ========== Phase 7: 混合攻击（数小时，<5%命中率）==========
         if (session.active && !isBruteforceMode) {
-            console.log('[Crack] Phase 6: Hybrid Attack');
-            session.currentPhase = 6;
+            console.log('[Crack] Phase 7: Hybrid Attack');
             const result = await runHybridAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
             totalAttempts = result.attempts;
             
@@ -1148,14 +1500,19 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
                 return { found: result.found, attempts: totalAttempts };
             }
         } else if (isBruteforceMode) {
-            console.log('[Crack] Skipping Phase 6 (Hybrid) - Bruteforce mode selected');
+            console.log('[Crack] Skipping Phase 7 (Hybrid) - Bruteforce mode selected');
         }
 
-        // ========== Phase 7: CPU 智能字典回退 ==========
+        // ========== Phase 8: CPU智能字典回退 ==========
         if (session.active) {
-            console.log('[Crack] Phase 7: CPU Smart Dictionary Fallback');
-            session.currentPhase = 7;
-            event.reply('zip:crack-progress', { id, attempts: totalAttempts, speed: 0, current: 'GPU exhausted, trying CPU smart dictionary...', method: 'CPU Smart Dictionary' });
+            console.log('[Crack] Phase 8: CPU Smart Dictionary Fallback');
+            session.currentPhase = 8;
+            sendCrackProgress(event, id, session, {
+                attempts: totalAttempts,
+                speed: 0,
+                current: 'GPU exhausted, trying CPU smart dictionary...',
+                method: 'CPU Smart Dictionary'
+            });
             
             fs.rmSync(tempDir, { recursive: true, force: true });
             
@@ -1195,7 +1552,12 @@ async function crackWithBkcrack(archivePath, options, event, id, session, startT
     }
     
     console.log('[Crack] Attempting known plaintext attack with bkcrack');
-    event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Analyzing archive...', method: 'bkcrack (Known Plaintext)' });
+    sendCrackProgress(event, id, session, {
+        attempts: 0,
+        speed: 0,
+        current: 'Analyzing archive...',
+        method: 'bkcrack (Known Plaintext)'
+    });
     
     // ??????????????��?
     const listProc = spawn(pathTo7zip, ['l', '-slt', archivePath], { windowsHide: true });
@@ -1228,7 +1590,12 @@ async function crackWithBkcrack(archivePath, options, event, id, session, startT
     }
     
     console.log('[Crack] Using known plaintext from:', targetFile);
-    event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Attacking ' + targetFile + '...', method: 'bkcrack' });
+    sendCrackProgress(event, id, session, {
+        attempts: 0,
+        speed: 0,
+        current: 'Attacking ' + targetFile + '...',
+        method: 'bkcrack'
+    });
     
     const tempDir = path.join(os.tmpdir(), 'bkcrack-' + Date.now());
     fs.mkdirSync(tempDir, { recursive: true });
@@ -1243,7 +1610,12 @@ async function crackWithBkcrack(archivePath, options, event, id, session, startT
         let output = '';
         proc.stdout.on('data', (data) => {
             output += data.toString();
-            event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Searching keys...', method: 'bkcrack' });
+            sendCrackProgress(event, id, session, {
+                attempts: 0,
+                speed: 0,
+                current: 'Searching keys...',
+                method: 'bkcrack'
+            });
         });
         proc.stderr.on('data', (data) => { output += data.toString(); });
         
@@ -1267,35 +1639,60 @@ async function crackWithBkcrack(archivePath, options, event, id, session, startT
 
 // ============ ???????????? ============
 async function crackWithSmartStrategy(archivePath, options, event, id, session, startTime) {
-    // 1. ??????????
-    console.log('[Crack] Detecting encryption type...');
-    event.reply('zip:crack-progress', { id, attempts: 0, speed: 0, current: 'Detecting encryption...', method: 'Analyzing' });
+    try {
+        // 0. 自适应策略选择
+        console.log('[Crack] Selecting optimal strategy...');
+        const strategySelector = new StrategySelector();
+        const selectedStrategy = strategySelector.selectStrategy(archivePath);
+        const strategyInfo = strategySelector.getStrategyInfo(selectedStrategy);
+        
+        console.log(`[Crack] Strategy selected: ${strategyInfo.name}`);
+        console.log(`[Crack] Strategy description: ${strategyInfo.description}`);
+        console.log(`[Crack] Strategy characteristics:`, strategyInfo.characteristics);
+        
+        // 1. 检测加密类型
+        console.log('[Crack] Detecting encryption type...');
+        sendCrackProgress(event, id, session, {
+            attempts: 0,
+            speed: 0,
+            current: `Strategy: ${strategyInfo.name}`,
+            method: 'Analyzing'
+        });
 
-    const encryption = await detectEncryption(archivePath);
-    console.log('[Crack] Encryption detected:', JSON.stringify(encryption));
-    event.reply('zip:crack-encryption', { id, ...encryption });
+        const encryption = await detectEncryption(archivePath);
+        console.log('[Crack] Encryption detected:', JSON.stringify(encryption));
+        event.reply('zip:crack-encryption', { id, ...encryption });
 
-    // 2. ?????????????????
-    // ?????: bkcrack (ZipCrypto only) > Hashcat (GPU) > CPU Multi-thread
+        // 2. ?????????????????
+        // ?????: bkcrack (ZipCrypto only) > Hashcat (GPU) > CPU Multi-thread
 
-    // bkcrack ??????? ZipCrypto
-    if (encryption.canUseBkcrack && encryption.isZipCrypto) {
-        console.log('[Crack] Strategy: bkcrack (known plaintext attack)');
-        const result = await crackWithBkcrack(archivePath, options, event, id, session, startTime);
-        if (result.found || !result.fallback) return result;
-        console.log('[Crack] bkcrack failed, trying next method...');
+        // bkcrack ??????? ZipCrypto
+        if (encryption.canUseBkcrack && encryption.isZipCrypto) {
+            console.log('[Crack] Strategy: bkcrack (known plaintext attack)');
+            const result = await crackWithBkcrack(archivePath, options, event, id, session, startTime);
+            if (result.found || !result.fallback) return result;
+            console.log('[Crack] bkcrack failed, trying next method...');
+        }
+
+        // Hashcat GPU - ??? ZIP/RAR/7z
+        console.log('[Crack] GPU decision:', { useGpu: options.useGpu, canUseHashcat: encryption.canUseHashcat });
+        
+        // AI Phase 可以独立运行，不依赖 Hashcat
+        // 即使文件太大无法使用 Hashcat，AI Phase 仍然可以运行
+        const canRunAI = true; // AI Phase always available if model is present
+        
+        if (options.useGpu && (encryption.canUseHashcat || canRunAI)) {
+            console.log('[Crack] Strategy: GPU/AI Pipeline (hashcat:', encryption.canUseHashcat, ', AI:', canRunAI, ')');
+            return await crackWithHashcat(archivePath, options, event, id, session, startTime, encryption);
+        }
+
+        // CPU Multi-thread - ??????
+        console.log('[Crack] Strategy: CPU Multi-thread');
+        return await crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+    } catch (err) {
+        console.error('[Crack] crackWithSmartStrategy error:', err);
+        throw err;
     }
-
-    // Hashcat GPU - ??? ZIP/RAR/7z
-    console.log('[Crack] GPU decision:', { useGpu: options.useGpu, canUseHashcat: encryption.canUseHashcat });
-    if (options.useGpu && encryption.canUseHashcat) {
-        console.log('[Crack] Strategy: Hashcat GPU (mode:', encryption.hashcatMode, ')');
-        return await crackWithHashcat(archivePath, options, event, id, session, startTime, encryption);
-    }
-
-    // CPU Multi-thread - ??????
-    console.log('[Crack] Strategy: CPU Multi-thread');
-    return await crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
 }
 // ============ IPC Handlers ============
 export const registerFileCompressor = () => {
@@ -1321,6 +1718,401 @@ export const registerFileCompressor = () => {
         const result = await dialog.showOpenDialog({ properties: ['openFile'], title: 'Select dictionary file', filters: [{ name: 'Text files', extensions: ['txt', 'dic', 'lst'] }] });
         return result.canceled ? null : result.filePaths[0];
     });
+    
+    // ============ Helper: Start Cracking with Resume Support ============
+    async function startCrackingWithResume(event, id, archivePath, options, resumeState = null) {
+        console.log('[Crack] Starting crack with resume support:', { id, archivePath, resumeState });
+        
+        // ✅ Helper function to send IPC messages (works with both ipcMain.on and ipcMain.handle)
+        const sendReply = (channel, data) => {
+            if (event.reply) {
+                event.reply(channel, data);
+            } else if (event.sender && event.sender.send) {
+                event.sender.send(channel, data);
+            } else {
+                console.error('[Crack] Cannot send reply - no valid method available');
+            }
+        };
+        
+        // Create or reuse session
+        let sessionData;
+        if (resumeState && resumeState.sessionId) {
+            // Resuming existing session
+            sessionData = sessionManager.loadSession(resumeState.sessionId);
+            console.log('[Crack] Reusing existing session:', resumeState.sessionId);
+        } else {
+            // Create new session
+            sessionData = sessionManager.createSession(archivePath, options);
+            console.log('[Crack] Created new session:', sessionData.id);
+        }
+        
+        const session = { 
+            active: true, 
+            paused: false, // ✅ Explicitly set paused to false when resuming
+            process: null, 
+            cleanup: null,
+            sessionId: sessionData.id,
+            sessionData,
+            currentPhase: resumeState?.startPhase || 0
+        };
+        crackSessions.set(id, session);
+        
+        // Create stats collector
+        const stats = new StatsCollector(id);
+        session.stats = stats;
+        
+        const startTime = Date.now();
+        const previousAttempts = resumeState?.previousAttempts || 0;
+        
+        console.log('[Crack] Resume state:', { 
+            startPhase: resumeState?.startPhase, 
+            previousAttempts,
+            phaseState: resumeState?.phaseState 
+        });
+        
+        // Periodic session save (every 10 seconds)
+        const saveInterval = setInterval(() => {
+            if (session.active && session.sessionData) {
+                try {
+                    sessionManager.saveSession(session.sessionId, {
+                        ...session.sessionData,
+                        testedPasswords: stats.testedPasswords,
+                        currentPhase: session.currentPhase || 0,
+                        phaseState: session.phaseState || {},
+                        lastUpdateTime: Date.now()
+                    });
+                } catch (err) {
+                    console.error('[Crack] Failed to save session:', err);
+                }
+            }
+        }, 10000);
+        
+        session.saveInterval = saveInterval;
+        
+        try {
+            // Start crack with smart strategy from resume point
+            const result = await crackWithSmartStrategyResume(
+                archivePath, 
+                options, 
+                event, 
+                id, 
+                session, 
+                startTime, 
+                previousAttempts,
+                resumeState
+            );
+            
+            // Clear save interval
+            clearInterval(saveInterval);
+            
+            const elapsed = (Date.now() - startTime) / 1000;
+            
+            // ✅ Add small delay to ensure pause flag is set if pause was requested
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            console.log('[startCrackingWithResume] Task completed, checking status:', {
+                found: !!result.found,
+                paused: !!session.paused,
+                active: !!session.active,
+                sessionExists: !!crackSessions.get(id)
+            });
+            
+            if (result.found) {
+                console.log('[Crack] Password found:', result.found);
+                console.log('[Crack] ✅ SENDING zip:crack-complete (password found)');
+                sessionManager.completeSession(session.sessionId, true, result.found);
+                crackSessions.delete(id);
+                sendReply('zip:crack-complete', { id, success: true, password: result.found, attempts: result.attempts, time: elapsed });
+            } else if (session.paused) {
+                // ✅ Check paused flag instead of just !session.active
+                console.log('[Crack] ⏸️  PAUSED - NOT sending zip:crack-complete, keeping session');
+                // Don't delete session, don't send crack-complete
+                // Session is already saved by pause handler
+            } else if (!session.active) {
+                console.log('[Crack] Stopped by user');
+                console.log('[Crack] ⛔ SENDING zip:crack-complete (stopped)');
+                sessionManager.deleteSession(session.sessionId);
+                crackSessions.delete(id);
+                sendReply('zip:crack-complete', { id, success: false, stopped: true, attempts: result.attempts, time: elapsed });
+            } else {
+                console.log('[Crack] Password not found');
+                console.log('[Crack] ❌ SENDING zip:crack-complete (not found)');
+                sessionManager.completeSession(session.sessionId, false);
+                crackSessions.delete(id);
+                sendReply('zip:crack-complete', { id, success: false, attempts: result.attempts, time: elapsed });
+            }
+        } catch (err) {
+            console.error('[Crack] Error:', err);
+            clearInterval(saveInterval);
+            crackSessions.delete(id);
+            sessionManager.completeSession(session.sessionId, false);
+            sendReply('zip:crack-complete', { id, success: false, error: err.message });
+        }
+    }
+    
+    // ============ Helper: Crack with Smart Strategy (Resume Support) ============
+    async function crackWithSmartStrategyResume(archivePath, options, event, id, session, startTime, previousAttempts, resumeState) {
+        try {
+            const startPhase = resumeState?.startPhase || 0;
+            const isResuming = startPhase > 0; // ✅ Track if we're resuming from a saved phase
+            console.log('[Crack] Starting from phase:', startPhase, 'isResuming:', isResuming);
+            
+            // ✅ Helper to send IPC messages (works with both ipcMain.on and ipcMain.handle)
+            const sendReply = (channel, data) => {
+                if (event.reply) {
+                    event.reply(channel, data);
+                } else if (event.sender && event.sender.send) {
+                    event.sender.send(channel, data);
+                } else {
+                    console.error('[Crack] Cannot send reply - no valid method available');
+                }
+            };
+            
+            // If resuming from phase 0 or starting fresh, run strategy selection
+            if (startPhase === 0) {
+                console.log('[Crack] Selecting optimal strategy...');
+                const strategySelector = new StrategySelector();
+                const selectedStrategy = strategySelector.selectStrategy(archivePath);
+                const strategyInfo = strategySelector.getStrategyInfo(selectedStrategy);
+                
+                console.log(`[Crack] Strategy selected: ${strategyInfo.name}`);
+                sendCrackProgress(event, id, session, {
+                    attempts: previousAttempts,
+                    speed: 0,
+                    current: `Strategy: ${strategyInfo.name}`,
+                    method: 'Analyzing'
+                });
+            }
+
+            const encryption = await detectEncryption(archivePath);
+            console.log('[Crack] Encryption detected:', JSON.stringify(encryption));
+            sendReply('zip:crack-encryption', { id, ...encryption });
+
+            // Run cracking pipeline from resume point
+            // ✅ If resuming, always try GPU pipeline (we were using GPU before pause)
+            if (options.useGpu && (encryption.canUseHashcat || isResuming)) {
+                console.log('[Crack] Strategy: GPU/AI Pipeline (resuming from phase', startPhase, ')');
+                return await crackWithHashcatResume(archivePath, options, event, id, session, startTime, encryption, previousAttempts, resumeState);
+            }
+
+            // CPU Multi-thread fallback
+            console.log('[Crack] Strategy: CPU Multi-thread');
+            return await crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+        } catch (err) {
+            console.error('[Crack] crackWithSmartStrategyResume error:', err);
+            throw err;
+        }
+    }
+    
+    // ============ Helper: Crack with Hashcat (Resume Support) ============
+    async function crackWithHashcatResume(archivePath, options, event, id, session, startTime, encryption, previousAttempts, resumeState) {
+        const hashcatPath = getHashcatPath();
+        const hashcatDir = getHashcatDir();
+        const attackMode = options.mode || 'dictionary';
+        const isBruteforceMode = attackMode === 'bruteforce';
+        const hashcatAvailable = fs.existsSync(hashcatPath);
+        
+        const startPhase = resumeState?.startPhase || 0;
+        const phaseState = resumeState?.phaseState || {};
+        const isResuming = startPhase > 0; // ✅ Track if we're resuming from a saved phase
+        
+        console.log('[Crack] Starting GPU/AI crack pipeline from phase:', startPhase);
+        console.log('[Crack] Phase state:', phaseState);
+        console.log('[Crack] Is resuming:', isResuming);
+        
+        let totalAttempts = previousAttempts;
+        session.currentPhase = startPhase;
+
+        // ========== Phase 0: AI Password Generation (PassGPT) ==========
+        if (session.active && !isBruteforceMode && startPhase <= 0) {
+            console.log('[Crack] Phase 0: AI Password Generation (PassGPT)');
+            const result = await runAIPhase(archivePath, event, id, session, totalAttempts, startTime, phaseState);
+            totalAttempts = result.attempts;
+            
+            // ✅ Update currentPhase to 1 after AI phase completes (success or failure)
+            // This ensures we don't re-run AI phase on resume
+            session.currentPhase = 1;
+            
+            if (result.found) {
+                return { found: result.found, attempts: totalAttempts };
+            }
+        } else if (startPhase > 0) {
+            console.log('[Crack] Skipping Phase 0 (AI) - Resuming from phase', startPhase);
+        }
+        
+        // If hashcat not available, fall back to CPU
+        // ✅ But if we're resuming from a GPU phase, try to continue with GPU anyway
+        if (!hashcatAvailable || (!encryption.canUseHashcat && !isResuming)) {
+            console.log('[Crack] Hashcat not available, falling back to CPU');
+            return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+        }
+        
+        // Extract hash
+        let hash;
+        try {
+            hash = await extractHash(archivePath, encryption);
+            console.log('[Crack] Extracted hash:', hash.substring(0, 50) + '...');
+        } catch (err) {
+            console.log('[Crack] Hash extraction failed:', err.message);
+            return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+        }
+
+        // Create temp files
+        const tempDir = path.join(os.tmpdir(), 'hashcat-pipeline-' + Date.now());
+        fs.mkdirSync(tempDir, { recursive: true });
+        const hashFile = path.join(tempDir, 'hash.txt');
+        const outFile = path.join(tempDir, 'cracked.txt');
+        fs.writeFileSync(hashFile, hash);
+
+        const hashMode = encryption.hashcatMode || '17200';
+
+        try {
+            // ========== Phase 1: Top 10K ==========
+            if (session.active && !isBruteforceMode && startPhase <= 1) {
+                session.currentPhase = 1;
+                console.log('[Crack] Phase 1: Top 10K Common Passwords');
+                const result = await runTop10KAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+                totalAttempts = result.attempts;
+                
+                if (result.found) {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    return { found: result.found, attempts: totalAttempts };
+                }
+            } else if (startPhase > 1) {
+                console.log('[Crack] Skipping Phase 1 (Top 10K) - Resuming from phase', startPhase);
+            }
+
+            // ========== Phase 2: Short Bruteforce ==========
+            if (session.active && startPhase <= 2) {
+                session.currentPhase = 2;
+                console.log('[Crack] Phase 2: Short Bruteforce (1-4 chars)');
+                const result = await runShortBruteforce(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+                totalAttempts = result.attempts;
+                
+                if (result.found) {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    return { found: result.found, attempts: totalAttempts };
+                }
+            } else if (startPhase > 2) {
+                console.log('[Crack] Skipping Phase 2 (Short Bruteforce) - Resuming from phase', startPhase);
+            }
+
+            // ========== Phase 3: Keyboard Patterns ==========
+            if (session.active && startPhase <= 3) {
+                session.currentPhase = 3;
+                console.log('[Crack] Phase 3: Keyboard Patterns Attack');
+                const result = await runKeyboardAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+                totalAttempts = result.attempts;
+                
+                if (result.found) {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    return { found: result.found, attempts: totalAttempts };
+                }
+            } else if (startPhase > 3) {
+                console.log('[Crack] Skipping Phase 3 (Keyboard) - Resuming from phase', startPhase);
+            }
+
+            // ========== Phase 4: Full Dictionary ==========
+            if (session.active && !isBruteforceMode && startPhase <= 4) {
+                session.currentPhase = 4;
+                console.log('[Crack] Phase 4: Full Dictionary Attack (14M passwords)');
+                sendCrackProgress(event, id, session, {
+                    attempts: totalAttempts,
+                    speed: 0,
+                    current: 'Full dictionary attack...',
+                    method: 'Hashcat GPU Dictionary'
+                });
+
+                let dictPath = path.join(hashcatDir, 'rockyou.txt');
+                if (!fs.existsSync(dictPath)) {
+                    dictPath = path.join(hashcatDir, 'combined_wordlist.txt');
+                }
+
+                if (fs.existsSync(dictPath)) {
+                    const args = ['-a', '0', dictPath];
+                    const result = await runHashcatPhase(hashFile, outFile, hashMode, args, 'Full Dictionary', event, id, session, totalAttempts);
+                    totalAttempts = result.attempts;
+
+                    if (result.found) {
+                        fs.rmSync(tempDir, { recursive: true, force: true });
+                        return { found: result.found, attempts: totalAttempts };
+                    }
+                }
+            } else if (startPhase > 4) {
+                console.log('[Crack] Skipping Phase 4 (Full Dictionary) - Resuming from phase', startPhase);
+            }
+
+            // ========== Phase 5: Rule Attack ==========
+            if (session.active && !isBruteforceMode && startPhase <= 5) {
+                session.currentPhase = 5;
+                console.log('[Crack] Phase 5: Rule Attack');
+                const result = await runRuleAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+                totalAttempts = result.attempts;
+
+                if (result.found) {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    return { found: result.found, attempts: totalAttempts };
+                }
+            } else if (startPhase > 5) {
+                console.log('[Crack] Skipping Phase 5 (Rule) - Resuming from phase', startPhase);
+            }
+
+            // ========== Phase 6: Smart Mask ==========
+            if (session.active && startPhase <= 6) {
+                session.currentPhase = 6;
+                console.log('[Crack] Phase 6: Smart Mask Attack');
+                const result = await runMaskAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+                totalAttempts = result.attempts;
+                
+                if (result.found) {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    return { found: result.found, attempts: totalAttempts };
+                }
+            } else if (startPhase > 6) {
+                console.log('[Crack] Skipping Phase 6 (Mask) - Resuming from phase', startPhase);
+            }
+
+            // ========== Phase 7: Hybrid Attack ==========
+            if (session.active && !isBruteforceMode && startPhase <= 7) {
+                session.currentPhase = 7;
+                console.log('[Crack] Phase 7: Hybrid Attack');
+                const result = await runHybridAttack(hashFile, outFile, hashMode, event, id, session, totalAttempts);
+                totalAttempts = result.attempts;
+                
+                if (result.found) {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    return { found: result.found, attempts: totalAttempts };
+                }
+            } else if (startPhase > 7) {
+                console.log('[Crack] Skipping Phase 7 (Hybrid) - Resuming from phase', startPhase);
+            }
+
+            // ========== Phase 8: CPU Smart Dictionary Fallback ==========
+            if (session.active && startPhase <= 8) {
+                session.currentPhase = 8;
+                console.log('[Crack] Phase 8: CPU Smart Dictionary Fallback');
+                sendCrackProgress(event, id, session, {
+                    attempts: totalAttempts,
+                    speed: 0,
+                    current: 'GPU exhausted, trying CPU smart dictionary...',
+                    method: 'CPU Smart Dictionary'
+                });
+                
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                
+                const cpuOptions = { ...options, mode: 'dictionary' };
+                return crackWithMultiThreadCPU(archivePath, cpuOptions, event, id, session, startTime);
+            }
+
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            return { found: null, attempts: totalAttempts };
+
+        } catch (err) {
+            console.log('[Crack] Pipeline error:', err.message);
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
+            return { found: null, attempts: totalAttempts };
+        }
+    }
     
     ipcMain.on('zip:compress', async (event, { files, options, id }) => {
         console.log('[Compress] Starting compression:', { files, options, id });
@@ -1508,59 +2300,208 @@ export const registerFileCompressor = () => {
         console.log('[Crack] Starting crack for:', archivePath);
         console.log('[Crack] Options:', JSON.stringify(options));
         
-        const session = { active: true, process: null, cleanup: null };
+        // Check for existing pending session
+        const existingSession = sessionManager.findPendingSessionForFile(archivePath);
+        if (existingSession) {
+            console.log('[Crack] Found existing session:', existingSession.id);
+            console.log('[Crack] Deleting old session and starting fresh...');
+            // Delete the old session and start fresh
+            sessionManager.deleteSession(existingSession.id);
+        }
+        
+        // Create new session
+        const sessionData = sessionManager.createSession(archivePath, options);
+        const session = { 
+            active: true, 
+            process: null, 
+            cleanup: null,
+            sessionId: sessionData.id,
+            sessionData
+        };
         crackSessions.set(id, session);
+        
+        // Create stats collector
+        const stats = new StatsCollector(id);
+        session.stats = stats;
+        
         const startTime = Date.now();
         
+        // Periodic session save (every 10 seconds)
+        const saveInterval = setInterval(() => {
+            if (session.active && session.sessionData) {
+                try {
+                    sessionManager.saveSession(session.sessionId, {
+                        ...session.sessionData,
+                        testedPasswords: stats.testedPasswords,
+                        currentPhase: session.currentPhase || 0,
+                        lastUpdateTime: Date.now()
+                    });
+                } catch (err) {
+                    console.error('[Crack] Failed to save session:', err);
+                }
+            }
+        }, 10000);
+        
+        session.saveInterval = saveInterval;
+        
         try {
-            // ?????????????
+            // Start crack with smart strategy
             const result = await crackWithSmartStrategy(archivePath, options, event, id, session, startTime);
             
-            crackSessions.delete(id);
+            // Clear save interval
+            clearInterval(saveInterval);
+            
             const elapsed = (Date.now() - startTime) / 1000;
+            
+            // ✅ Add small delay to ensure pause flag is set if pause was requested
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            console.log('[zip:crack-start] Task completed, checking status:', {
+                found: !!result.found,
+                paused: !!session.paused,
+                active: !!session.active,
+                sessionExists: !!crackSessions.get(id)
+            });
             
             if (result.found) {
                 console.log('[Crack] Password found:', result.found);
+                console.log('[Crack] ✅ SENDING zip:crack-complete (password found)');
+                sessionManager.completeSession(session.sessionId, true, result.found);
+                crackSessions.delete(id);
                 event.reply('zip:crack-complete', { id, success: true, password: result.found, attempts: result.attempts, time: elapsed });
+            } else if (session.paused) {
+                // ✅ Check paused flag instead of just !session.active
+                console.log('[Crack] ⏸️  PAUSED - NOT sending zip:crack-complete, keeping session');
+                // Don't delete session, don't send crack-complete
+                // Session is already saved by pause handler
             } else if (!session.active) {
                 console.log('[Crack] Stopped by user');
+                console.log('[Crack] ⛔ SENDING zip:crack-complete (stopped)');
+                sessionManager.deleteSession(session.sessionId);
+                crackSessions.delete(id);
                 event.reply('zip:crack-complete', { id, success: false, stopped: true, attempts: result.attempts, time: elapsed });
             } else {
                 console.log('[Crack] Password not found');
+                console.log('[Crack] ❌ SENDING zip:crack-complete (not found)');
+                sessionManager.completeSession(session.sessionId, false);
+                crackSessions.delete(id);
                 event.reply('zip:crack-complete', { id, success: false, attempts: result.attempts, time: elapsed });
             }
         } catch (err) {
             console.error('[Crack] Error:', err);
+            clearInterval(saveInterval);
             crackSessions.delete(id);
+            sessionManager.completeSession(session.sessionId, false);
             event.reply('zip:crack-complete', { id, success: false, error: err.message });
         }
     });
     
+    // Pause handler - saves session without deleting
+    ipcMain.on('zip:crack-pause', (event, { id }) => {
+        console.log('[Crack] ⏸️  Pause requested for:', id);
+        const session = crackSessions.get(id);
+        
+        if (!session) {
+            console.log('[Crack] ⚠️  No session found for id:', id, '- ignoring pause request');
+            event.reply('zip:crack-paused', { id, sessionId: null });
+            return;
+        }
+        
+        // ✅ Check if already paused - ignore duplicate pause requests
+        if (session.paused) {
+            console.log('[Crack] ⚠️  Session already paused - ignoring duplicate pause request');
+            return;
+        }
+        
+        console.log('[Crack] Session found, current state:', {
+            active: session.active,
+            paused: session.paused || false,
+            currentPhase: session.currentPhase
+        });
+        
+        // Mark as inactive to stop processing
+        session.active = false;
+        session.paused = true; // ✅ Add paused flag to distinguish from stop
+        
+        console.log('[Crack] Flags set:', {
+            active: session.active,
+            paused: session.paused
+        });
+        
+        // Save session state
+        if (session.sessionId && session.stats) {
+            try {
+                console.log('[Crack] Saving session state...');
+                sessionManager.pauseSession(session.sessionId);
+            } catch (err) {
+                console.error('[Crack] Failed to pause session:', err);
+            }
+        }
+        
+        // Clear save interval
+        if (session.saveInterval) {
+            clearInterval(session.saveInterval);
+        }
+        
+        // Gracefully stop processes (don't kill forcefully)
+        if (session.process) {
+            try {
+                console.log('[Crack] Gracefully stopping process with SIGTERM...');
+                session.process.kill('SIGTERM');
+            } catch(e) {
+                console.log('[Crack] SIGTERM error:', e.message);
+            }
+        }
+        
+        // Cleanup workers gracefully
+        if (session.cleanup) {
+            try {
+                console.log('[Crack] Cleaning up workers...');
+                session.cleanup();
+            } catch(e) {
+                console.log('[Crack] Cleanup error:', e.message);
+            }
+        }
+        
+        // IMPORTANT: Keep session in memory (don't delete)
+        // crackSessions.delete(id); // ❌ DON'T DO THIS for pause
+        
+        // Send paused event with sessionId
+        event.reply('zip:crack-paused', { id, sessionId: session.sessionId });
+        console.log('[Crack] Session paused successfully, sessionId:', session.sessionId);
+    });
+    
+    // Stop handler - completely terminates and deletes session
     ipcMain.on('zip:crack-stop', (event, { id }) => {
         console.log('[Crack] Stop requested for:', id);
         const session = crackSessions.get(id);
         if (session) {
             session.active = false;
             
+            // Delete session completely (don't save)
+            if (session.sessionId) {
+                try {
+                    console.log('[Crack] Deleting session...');
+                    sessionManager.deleteSession(session.sessionId);
+                } catch (err) {
+                    console.error('[Crack] Failed to delete session:', err);
+                }
+            }
+            
+            // Clear save interval
+            if (session.saveInterval) {
+                clearInterval(session.saveInterval);
+            }
+            
             // 立即发送停止确认事件 - 这样UI可以立即响应
             event.reply('zip:crack-stopped', { id });
             console.log('[Crack] Sent crack-stopped event to renderer');
             
-            // 然后清理进程和workers
+            // 然后清理进程和workers - 强制杀死
             if (session.process) { 
                 try { 
-                    console.log('[Crack] Killing process...');
-                    session.process.kill('SIGTERM');
-                    // 如果 SIGTERM 没有工作，2 秒后用 SIGKILL
-                    setTimeout(() => {
-                        try { 
-                            if (session.process) {
-                                session.process.kill('SIGKILL'); 
-                            }
-                        } catch(e) {
-                            console.log('[Crack] SIGKILL error:', e.message);
-                        }
-                    }, 2000);
+                    console.log('[Crack] Force killing process with SIGKILL...');
+                    session.process.kill('SIGKILL');
                 } catch(e) {
                     console.log('[Crack] Kill error:', e.message);
                 } 
@@ -1578,11 +2519,80 @@ export const registerFileCompressor = () => {
             
             // 从会话中移除
             crackSessions.delete(id);
-            console.log('[Crack] Session cleaned up');
+            console.log('[Crack] Session stopped and deleted');
         } else {
             console.log('[Crack] No session found for id:', id);
             // 即使没有会话，也发送停止事件
             event.reply('zip:crack-stopped', { id });
         }
     });
+    
+    // Resume session handler
+    ipcMain.handle('zip:crack-resume', async (event, { sessionId, filePath }) => {
+        console.log('[Crack] Resume requested for session:', sessionId, 'with filePath:', filePath);
+        const sessionData = sessionManager.loadSession(sessionId);
+        
+        if (!sessionData) {
+            console.log('[Crack] Session data not found');
+            return { success: false, error: 'Session not found' };
+        }
+        
+        console.log('[Crack] Session data loaded:', {
+            filePath: sessionData.filePath,
+            archivePath: sessionData.archivePath,
+            fileName: sessionData.fileName
+        });
+        
+        // Use filePath from UI if provided, otherwise fall back to session data
+        const archivePath = filePath || sessionData.archivePath || sessionData.filePath;
+        
+        console.log('[Crack] Using archive path:', archivePath);
+        
+        // Verify archive file still exists
+        if (!fs.existsSync(archivePath)) {
+            console.log('[Crack] Archive file not found at:', archivePath);
+            return { success: false, error: 'Archive file not found: ' + archivePath };
+        }
+        
+        // ✅ Clean up any existing sessions with the same sessionId to avoid conflicts
+        for (const [jobId, session] of crackSessions.entries()) {
+            if (session.sessionId === sessionId) {
+                console.log('[Crack] Cleaning up old session with jobId:', jobId);
+                crackSessions.delete(jobId);
+            }
+        }
+        
+        // Mark session as active
+        sessionManager.resumeSession(sessionId);
+        
+        // Generate new job ID for this resume
+        const jobId = Date.now().toString();
+        
+        console.log('[Crack] Resuming from phase:', sessionData.currentPhase, 'tested:', sessionData.testedPasswords);
+        
+        // Restart cracking from saved phase
+        startCrackingWithResume(event, jobId, archivePath, sessionData.options, {
+            startPhase: sessionData.currentPhase || 0,
+            previousAttempts: sessionData.testedPasswords || 0,
+            sessionId: sessionId,
+            phaseState: sessionData.phaseState || {}
+        });
+        
+        return { success: true, jobId };
+    });
+    
+    // List pending sessions handler
+    ipcMain.handle('zip:crack-list-sessions', async () => {
+        const sessions = sessionManager.listPendingSessions();
+        return { success: true, sessions };
+    });
+    
+    // Delete session handler
+    ipcMain.handle('zip:crack-delete-session', async (event, { sessionId }) => {
+        sessionManager.deleteSession(sessionId);
+        return { success: true };
+    });
+    
+    // Cleanup old sessions on startup
+    sessionManager.cleanupOldSessions();
 };
