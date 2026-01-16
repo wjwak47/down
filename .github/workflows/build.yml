@@ -45,6 +45,15 @@ jobs:
         run: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Self-sign Mac app
+        run: |
+          # Find and sign all .app bundles
+          find dist -name "*.app" -type d | while read app; do
+            echo "Signing $app"
+            codesign --force --deep --sign - "$app" || true
+          done
 
       - name: Upload Mac DMG
         uses: actions/upload-artifact@v4
