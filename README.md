@@ -27,16 +27,38 @@ This project uses GitHub Actions for automated builds.
 
 ### macOS Installation
 
-由于应用未经 Apple 签名，首次打开时可能显示"已损坏"提示。请按以下步骤操作：
+由于应用未经 Apple 签名，首次打开时可能显示"已损坏"或无法打开。请按以下步骤操作：
 
-1. 下载并安装 DMG 文件
-2. 打开终端，运行以下命令：
+**方法一：使用 ZIP 便携版（推荐）**
+1. 下载 `ProFlow-Studio-xxx-portable.zip`
+2. 解压到任意位置
+3. 打开终端，运行：
 ```bash
-sudo xattr -rd com.apple.quarantine /Applications/ProFlow\ Studio.app
+xattr -cr "/path/to/ProFlow Studio.app"
 ```
-3. 输入密码后，即可正常打开应用
+4. 双击打开应用
 
-或者：右键点击应用 → 选择"打开" → 在弹出对话框中点击"打开"
+**方法二：使用 DMG 安装包**
+1. 下载并打开 DMG 文件
+2. 将 ProFlow Studio 拖到 Applications 文件夹
+3. 打开终端，运行：
+```bash
+sudo xattr -rd com.apple.quarantine "/Applications/ProFlow Studio.app"
+```
+4. 输入密码后，双击打开应用
+
+**方法三：如果上述方法无效**
+1. 打开"系统偏好设置" → "安全性与隐私" → "通用"
+2. 点击"仍要打开"按钮（如果显示）
+3. 或者：右键点击应用 → 选择"打开" → 在弹出对话框中点击"打开"
+
+**如果仍然无法打开（无任何提示）：**
+```bash
+# 完全移除隔离属性
+sudo xattr -d com.apple.quarantine "/Applications/ProFlow Studio.app"
+# 重新签名
+codesign --force --deep --sign - "/Applications/ProFlow Studio.app"
+```
 
 ### Manual Build
 

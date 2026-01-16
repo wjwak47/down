@@ -47,15 +47,28 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Self-sign Mac app
+      - name: Create portable ZIP (no quarantine issues)
         run: |
-          # Find and sign all .app bundles
-          find dist -name "*.app" -type d | while read app; do
-            echo "Signing $app"
-            codesign --force --deep --sign - "$app" || true
+          # Create ZIP archives that bypass quarantine issues
+          cd dist
+          for dir in mac mac-arm64 mac-x64 mac-universal; do
+            if [ -d "$dir" ]; then
+              APP_NAME=$(ls "$dir" | grep "\.app$" | head -1)
+              if [ -n "$APP_NAME" ]; then
+                ARCH=$(echo "$dir" | sed 's/mac-*//' | sed 's/mac/x64/')
+                [ "$ARCH" = "" ] && ARCH="x64"
+                ZIP_NAME="ProFlow-Studio-${ARCH}-portable.zip"
+                echo "Creating $ZIP_NAME from $dir/$APP_NAME"
+                # Create ZIP without extended attributes
+                cd "$dir"
+                COPYFILE_DISABLE=1 zip -r -X "../$ZIP_NAME" "$APP_NAME"
+                cd ..
+              fi
+            fi
           done
+          ls -la *.zip *.dmg 2>/dev/null || true
 
-      - name: Upload Mac DMG
+      - name: Upload Mac builds
         uses: actions/upload-artifact@v4
         with:
           name: VideoDownloader-Mac
