@@ -142,7 +142,35 @@ function getBkcrackPath() {
 }
 
 function isHashcatAvailable() {
-    try { return fs.existsSync(getHashcatPath()); } catch (e) { return false; }
+    try { 
+        const hashcatPath = getHashcatPath();
+        if (!fs.existsSync(hashcatPath)) {
+            console.log('[Hashcat] Binary not found at:', hashcatPath);
+            return false;
+        }
+        
+        // On Mac, do a safer check without GPU detection (which can cause crashes)
+        if (isMac) {
+            try {
+                // Just check if hashcat binary is executable and responds to --version
+                const result = execSync(`"${hashcatPath}" --version 2>/dev/null | head -1`, { 
+                    encoding: 'utf-8', 
+                    timeout: 3000 
+                });
+                console.log('[Hashcat] Version check result:', result.trim());
+                return result.includes('hashcat');
+            } catch (e) {
+                console.log('[Hashcat] Version check failed:', e.message);
+                // On Mac, if hashcat version check fails, it's likely not working properly
+                return false;
+            }
+        }
+        
+        return true;
+    } catch (e) { 
+        console.log('[Hashcat] Availability check error:', e.message);
+        return false; 
+    }
 }
 
 function getJohnToolPath(tool) {
@@ -452,6 +480,27 @@ async function crackWithCPU(archivePath, options, event, id, session, startTime)
     const batchManager = new BatchTestManager(100);
     const system7z = getSystem7zPath();
     
+    // Mac特殊处理：确保使用正确的7z路径
+    let use7z = system7z || pathTo7zip;
+    if (isMac && (!use7z || !fs.existsSync(use7z))) {
+        console.log('[Crack] Mac: 7z not found, trying alternative paths...');
+        const alternatives = ['/opt/homebrew/bin/7z', '/usr/local/bin/7z', '/usr/bin/7z'];
+        for (const alt of alternatives) {
+            if (fs.existsSync(alt)) {
+                use7z = alt;
+                console.log('[Crack] Mac: Using 7z at:', alt);
+                break;
+            }
+        }
+    }
+    
+    if (!use7z || !fs.existsSync(use7z)) {
+        console.error('[Crack] Mac: No working 7z found, cannot proceed with CPU cracking');
+        return { found: null, attempts: totalAttempts, error: 'No 7z tool available' };
+    }
+    
+    console.log('[Crack] Using 7z path:', use7z);
+    
     const testBatch = async (passwords) => {
         for (const pwd of passwords) {
             if (!session.active || found) return;
@@ -461,7 +510,7 @@ async function crackWithCPU(archivePath, options, event, id, session, startTime)
             
             // 当批次满时，执行批量测试
             if (batchManager.shouldTest()) {
-                const result = await batchManager.testBatch(archivePath, system7z);
+                const result = await batchManager.testBatch(archivePath, use7z);
                 totalAttempts += result.tested;
                 
                 if (result.success) {
@@ -487,7 +536,7 @@ async function crackWithCPU(archivePath, options, event, id, session, startTime)
         
         // 测试剩余的密码
         if (!found && batchManager.getQueueSize() > 0) {
-            const result = await batchManager.flush(archivePath, system7z);
+            const result = await batchManager.flush(archivePath, use7z);
             totalAttempts += result.tested;
             if (result.success) {
                 found = result.password;
@@ -496,30 +545,115 @@ async function crackWithCPU(archivePath, options, event, id, session, startTime)
     };
     if (mode === 'dictionary') {
         console.log('[Crack] Dictionary mode');
+        let totalWords = 0;
+        
         if (dictionaryPath && fs.existsSync(dictionaryPath)) {
-            for (const word of fs.readFileSync(dictionaryPath, 'utf-8').split('\n').filter(l => l.trim())) {
+            const dictWords = fs.readFileSync(dictionaryPath, 'utf-8').split('\n').filter(l => l.trim());
+            console.log('[Crack] Custom dictionary words:', dictWords.length);
+            for (const word of dictWords) {
                 if (!session.active || found) break;
-                await testBatch(applyRules(word.trim()));
+                const variants = applyRules(word.trim());
+                totalWords += variants.length;
+                await testBatch(variants);
             }
         }
+        
         if (!found && session.active) {
+            // 1. 先使用 SMART_DICTIONARY（高频密码）
+            console.log('[Crack] Using SMART_DICTIONARY with', SMART_DICTIONARY.length, 'base words');
             for (const word of SMART_DICTIONARY) {
                 if (!session.active || found) break;
-                await testBatch(applyRules(word));
+                const variants = applyRules(word);
+                totalWords += variants.length;
+                console.log(`[Crack] Testing word "${word}" with ${variants.length} variants (total tested: ${totalWords})`);
+                await testBatch(variants);
+            }
+            
+            // 2. 如果还没找到，使用 rockyou 字典
+            if (!found && session.active) {
+                // Mac上查找rockyou字典的路径
+                let rockyouPath = null;
+                const possiblePaths = [
+                    // 如果hashcat可用，尝试hashcat目录
+                    ...(isHashcatAvailable() ? [
+                        path.join(getHashcatDir(), 'rockyou.txt'),
+                        path.join(getHashcatDir(), 'combined_wordlist.txt')
+                    ] : []),
+                    // 系统路径
+                    '/usr/share/wordlists/rockyou.txt',
+                    '/opt/homebrew/share/wordlists/rockyou.txt',
+                    '/usr/local/share/wordlists/rockyou.txt',
+                    // 应用资源路径
+                    path.join(process.resourcesPath || process.cwd(), 'hashcat', 'rockyou.txt'),
+                    path.join(process.resourcesPath || process.cwd(), 'hashcat', 'combined_wordlist.txt')
+                ];
+                
+                for (const testPath of possiblePaths) {
+                    if (fs.existsSync(testPath)) {
+                        rockyouPath = testPath;
+                        break;
+                    }
+                }
+                
+                if (rockyouPath) {
+                    console.log('[Crack] Using rockyou dictionary:', rockyouPath);
+                    try {
+                        // 读取 rockyou 字典（分批读取，避免内存问题）
+                        const rockyouContent = fs.readFileSync(rockyouPath, 'utf-8');
+                        const rockyouWords = rockyouContent.split('\n').filter(l => l.trim());
+                        console.log('[Crack] Rockyou dictionary loaded:', rockyouWords.length, 'words');
+                        
+                        // 分批处理 rockyou（每 1000 个词一批，避免内存爆炸）
+                        const batchSize = 1000;
+                        for (let i = 0; i < rockyouWords.length && session.active && !found; i += batchSize) {
+                            const batch = rockyouWords.slice(i, i + batchSize);
+                            console.log(`[Crack] Processing rockyou batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(rockyouWords.length/batchSize)} (${batch.length} words)`);
+                            
+                            for (const word of batch) {
+                                if (!session.active || found) break;
+                                // 对 rockyou 中的词，只应用基本规则（避免生成太多变体）
+                                const variants = [word.trim(), word.trim() + '123', word.trim() + '1'];
+                                totalWords += variants.length;
+                                await testBatch(variants);
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[Crack] Error reading rockyou dictionary:', err.message);
+                    }
+                } else {
+                    console.log('[Crack] Rockyou dictionary not found at any expected location');
+                    console.log('[Crack] Searched paths:', possiblePaths);
+                }
             }
         }
+        
+        console.log('[Crack] Dictionary mode completed. Total password variants tested:', totalWords);
     } else {
         console.log('[Crack] Bruteforce mode');
         const cs = charset || 'abcdefghijklmnopqrstuvwxyz0123456789';
         const minLen = minLength || 1, maxLen = Math.min(maxLength || 6, 10);
         const gen = smartPasswordGenerator({ minLength: minLen, maxLength: maxLen });
         let batch = [];
+        let totalGenerated = 0;
+        
         for (const pwd of gen) {
             if (!session.active || found) break;
             batch.push(pwd);
-            if (batch.length >= 100) { await testBatch(batch); batch = []; }
+            totalGenerated++;
+            
+            if (batch.length >= 100) { 
+                console.log(`[Crack] Testing batch of ${batch.length} passwords (total generated: ${totalGenerated})`);
+                await testBatch(batch); 
+                batch = []; 
+            }
         }
-        if (batch.length > 0 && session.active && !found) await testBatch(batch);
+        
+        if (batch.length > 0 && session.active && !found) {
+            console.log(`[Crack] Testing final batch of ${batch.length} passwords`);
+            await testBatch(batch);
+        }
+        
+        console.log('[Crack] Bruteforce mode completed. Total passwords generated:', totalGenerated);
     }
     return { found, attempts: totalAttempts };
 }
@@ -1462,6 +1596,12 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
 
     console.log('[Crack] Starting GPU/AI crack pipeline, format:', encryption.format, 'hashcat:', hashcatAvailable);
     
+    // Mac特殊处理：如果hashcat不可用，直接跳到CPU模式
+    if (isMac && !hashcatAvailable) {
+        console.log('[Crack] Mac: Hashcat not available, falling back to CPU mode');
+        return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+    }
+    
     let totalAttempts = 0;
     session.currentPhase = 0;
 
@@ -1660,6 +1800,13 @@ async function crackWithHashcat(archivePath, options, event, id, session, startT
     } catch (err) {
         console.log('[Crack] Pipeline error:', err.message);
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
+        
+        // Mac特殊处理：如果GPU模式出错，回退到CPU模式
+        if (isMac) {
+            console.log('[Crack] Mac: GPU error, falling back to CPU mode');
+            return crackWithMultiThreadCPU(archivePath, options, event, id, session, startTime);
+        }
+        
         return { found: null, attempts: totalAttempts };
     }
 }
