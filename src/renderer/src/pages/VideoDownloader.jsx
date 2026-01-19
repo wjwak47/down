@@ -27,14 +27,14 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
         const handleProgress = ({ id, progress, speed, downloadedSize, totalSize, eta }) => {
             // Update download state with any available progress data
             const updates = { status: 'downloading' };
-            
+
             // Always update if we have any progress data
             if (progress > 0) updates.progress = progress;
             if (speed > 0) updates.speed = speed;
             if (downloadedSize > 0) updates.downloadedSize = downloadedSize;
             if (totalSize > 0) updates.totalSize = totalSize;
             if (eta > 0) updates.eta = eta;
-            
+
             // Only update if we have meaningful data
             if (Object.keys(updates).length > 1) {
                 console.log(`[VideoDownloader] Progress update for ${id}:`, updates);
@@ -49,9 +49,9 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
             console.log(`[VideoDownloader] handleComplete: id=${id}, code=${code}, fileSize=${fileSize}, fileExt=${fileExt}`);
 
             if (code === 0) {
-                const updateData = { 
-                    progress: 100, 
-                    status: 'completed', 
+                const updateData = {
+                    progress: 100,
+                    status: 'completed',
                     filePath,
                     totalSize: fileSize || download.totalSize || 0,
                     format: fileExt || download.format || 'mp4',
@@ -59,7 +59,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
                 };
                 console.log(`[VideoDownloader] Updating download with:`, updateData);
                 actions.updateDownload(id, updateData);
-                
+
                 actions.addToHistory({
                     id: `hist-${id}`,
                     title: download.title,
@@ -75,14 +75,14 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
             } else {
                 const newRetryCount = (download.retryCount || 0) + 1;
                 if (settings.autoRetry && newRetryCount <= settings.retryCount) {
-                    actions.updateDownload(id, { 
+                    actions.updateDownload(id, {
                         retryCount: newRetryCount,
                         status: 'queued',
                         error: null
                     });
                 } else {
-                    actions.updateDownload(id, { 
-                        status: 'failed', 
+                    actions.updateDownload(id, {
+                        status: 'failed',
                         error: 'Download failed'
                     });
                 }
@@ -111,7 +111,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
         if (derivedState.canStartNewDownload && derivedState.nextQueuedDownload) {
             const nextTask = derivedState.nextQueuedDownload;
             console.log('[VideoDownloader] Starting queued download:', nextTask.id);
-            
+
             const savedPath = localStorage.getItem('downloadPath') || settings.downloadPath;
             const options = {
                 format: nextTask.type === 'audio' ? 'bestaudio' : 'bestvideo+bestaudio/best',
@@ -119,7 +119,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
                 audioOnly: nextTask.type === 'audio',
                 downloadDir: savedPath || undefined
             };
-            
+
             actions.updateDownload(nextTask.id, { status: 'downloading' });
             window.api.downloadVideo(nextTask.url, options, nextTask.id);
         }
@@ -138,15 +138,15 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
 
     const handleParseUrl = async (inputUrl) => {
         const cleanUrl = inputUrl || url.match(/(https?:\/\/[^\s]+)/)?.[0];
-        if (!cleanUrl) { 
-            setError('Please enter a valid video URL'); 
-            return; 
+        if (!cleanUrl) {
+            setError('Please enter a valid video URL');
+            return;
         }
 
         setIsLoading(true);
         setVideoInfo(null);
         setError(null);
-        
+
         try {
             // Check if Bilibili URL and get saved cookies
             const isBilibili = cleanUrl.includes('bilibili.com') || cleanUrl.includes('b23.tv');
@@ -157,7 +157,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
                     options.cookies = savedCookie;
                 }
             }
-            
+
             const info = await window.api.getVideoInfo(cleanUrl, options);
             setVideoInfo(info);
         } catch (err) {
@@ -190,14 +190,14 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
 
     const handleDownload = useCallback((type, options = {}) => {
         if (!videoInfo) return;
-        if (type === 'subtitle') { 
-            setIsSubtitleDialogOpen(true); 
-            return; 
+        if (type === 'subtitle') {
+            setIsSubtitleDialogOpen(true);
+            return;
         }
 
         const id = Date.now().toString();
         const savedPath = localStorage.getItem('downloadPath') || settings.downloadPath;
-        
+
         const extractor = (videoInfo.extractor || videoInfo.extractor_key || '').toLowerCase();
         let platform = 'unknown';
         if (extractor.includes('youtube')) platform = 'youtube';
@@ -210,7 +210,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
 
         const { quality, format } = options;
         const isAudio = type === 'audio';
-        
+
         const downloadOptions = {
             format: isAudio ? (quality?.formatId || 'bestaudio') : (quality?.formatId || 'bestvideo+bestaudio'),
             output: '%(title)s.%(ext)s',
@@ -220,8 +220,8 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
             mergeOutputFormat: format || (isAudio ? 'm4a' : 'mp4')
         };
 
-        const downloadUrl = videoInfo.extractor === 'youtube' 
-            ? videoInfo.webpage_url 
+        const downloadUrl = videoInfo.extractor === 'youtube'
+            ? videoInfo.webpage_url
             : (videoInfo.webpage_url || videoInfo.url);
 
         actions.addDownload({
@@ -247,7 +247,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
     }, [videoInfo, settings, actions, derivedState]);
 
     const handlePause = useCallback((id) => window.api.pauseDownload(id), []);
-    
+
     const handleResume = useCallback((id) => {
         const download = downloads[id];
         if (!download) return;
@@ -263,7 +263,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
     }, [downloads, settings, actions]);
 
     const handleCancel = useCallback((id) => window.api.cancelDownload(id), []);
-    
+
     const handleRetry = useCallback((id) => {
         const download = downloads[id];
         if (!download) return;
@@ -294,8 +294,9 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
             title: `${videoInfo.title} (Subtitles)`,
             thumbnail: videoInfo.thumbnail,
             url: videoInfo.webpage_url,
-            platform: 'unknown',
+            platform: 'youtube',
             type: 'subtitle',
+            format: subtitleOptions.format?.toUpperCase() || 'SRT', // ✅ 使用用户选择的字幕格式
             status: 'downloading',
             progress: 0
         });
@@ -425,7 +426,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
 
                         {/* Playlist Selector */}
                         {isPlaylist && (
-                            <PlaylistSelector 
+                            <PlaylistSelector
                                 playlist={videoInfo}
                                 onDownload={handlePlaylistDownload}
                                 onCancel={() => setVideoInfo(null)}
@@ -434,7 +435,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
 
                         {/* Video Media Card */}
                         {videoInfo && !isPlaylist && !isLoading && (
-                            <VideoMediaCard 
+                            <VideoMediaCard
                                 videoInfo={videoInfo}
                                 onDownload={handleDownload}
                                 isDownloading={Object.values(downloads).some(d => d.status === 'downloading')}
@@ -449,7 +450,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
                                 </div>
                                 <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">Paste a video link to start</h3>
                                 <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Supports YouTube, Bilibili, TikTok, and more</p>
-                                
+
                                 {/* Supported platforms */}
                                 <div className="flex flex-wrap justify-center gap-2 mb-6">
                                     {supportedPlatforms.map(platform => (
@@ -494,7 +495,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
                             {derivedState.activeDownloadCount} active · {derivedState.queuedDownloadCount} queued
                         </p>
                     </div>
-                    
+
                     <div className="flex-1 overflow-auto custom-scrollbar p-4">
                         {hasDownloads ? (
                             <div className="space-y-2">
@@ -526,10 +527,8 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
             {/* Status Bar */}
             <div className="h-10 px-6 border-t border-slate-200/60 dark:border-slate-800/60 bg-white/50 dark:bg-slate-900/50 flex items-center justify-between text-xs">
                 <span className="text-slate-500 dark:text-slate-400">{downloadList.length} download{downloadList.length !== 1 ? 's' : ''} total</span>
-                <span className={`flex items-center gap-1.5 font-medium ${
-                    derivedState.activeDownloadCount > 0 ? 'text-blue-500' : completedCount > 0 ? 'text-emerald-500' : 'text-slate-400'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                        derivedState.activeDownloadCount > 0 ? 'bg-blue-500 animate-pulse' : completedCount > 0 ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                <span className={`flex items-center gap-1.5 font-medium ${derivedState.activeDownloadCount > 0 ? 'text-blue-500' : completedCount > 0 ? 'text-emerald-500' : 'text-slate-400'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${derivedState.activeDownloadCount > 0 ? 'bg-blue-500 animate-pulse' : completedCount > 0 ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
                     {derivedState.activeDownloadCount > 0 ? `Downloading ${derivedState.activeDownloadCount} file${derivedState.activeDownloadCount > 1 ? 's' : ''}` : completedCount > 0 ? `${completedCount} completed` : 'Ready'}
                 </span>
             </div>
@@ -555,7 +554,7 @@ function VideoDownloader({ pendingUrl = '', onClearPendingUrl }) {
                 onClose={() => setIsEudicDialogOpen(false)}
                 audioFile={uploadItem?.filePath}
                 videoTitle={uploadItem?.title}
-                onUploadSuccess={() => {}}
+                onUploadSuccess={() => { }}
             />
         </div>
     );

@@ -66,23 +66,26 @@ const api = {
     zipCheckGpu: () => ipcRenderer.invoke('zip:check-gpu'),
     zipCrackStart: (archivePath, options, id) => ipcRenderer.send('zip:crack-start', { archivePath, options, id }),
     zipCrackPause: (id) => ipcRenderer.send('zip:crack-pause', { id }),
-    zipCrackStop: (id) => ipcRenderer.send('zip:crack-stop', { id }),
+    zipCrackStop: (id, force = false) => ipcRenderer.invoke('zip:crack-stop', { id, force }),
+    zipCrackForceStop: (id) => ipcRenderer.invoke('zip:crack-force-stop', { id }),
+    zipCrackVerifyTermination: () => ipcRenderer.invoke('zip:crack-verify-termination'),
     zipCrackResume: (sessionId, filePath) => ipcRenderer.invoke('zip:crack-resume', { sessionId, filePath }),
     zipCrackListSessions: () => ipcRenderer.invoke('zip:crack-list-sessions'),
     zipCrackDeleteSession: (sessionId) => ipcRenderer.invoke('zip:crack-delete-session', { sessionId }),
+    zipCrackBlacklistSession: (sessionId, reason = 'user_stop') => ipcRenderer.invoke('zip:crack-blacklist-session', { sessionId, reason }),
+    zipCrackIsBlacklisted: (sessionId) => ipcRenderer.invoke('zip:crack-is-blacklisted', { sessionId }),
+    zipCrackClearBlacklist: () => ipcRenderer.invoke('zip:crack-clear-blacklist'),
     onZipCrackStarted: (callback) => ipcRenderer.on('zip:crack-started', (_, data) => callback(data)),
     onZipCrackProgress: (callback) => ipcRenderer.on('zip:crack-progress', (_, data) => callback(data)),
     onZipCrackResult: (callback) => ipcRenderer.on('zip:crack-complete', (_, data) => callback(data)),
     onZipCrackEncryption: (callback) => ipcRenderer.on('zip:crack-encryption', (_, data) => callback(data)),
     onZipCrackPaused: (callback) => ipcRenderer.on('zip:crack-paused', (_, data) => callback(data)),
-    onZipCrackStopped: (callback) => ipcRenderer.on('zip:crack-stopped', (_, data) => callback(data)),
     zipCrackOffListeners: () => {
         ipcRenderer.removeAllListeners('zip:crack-started');
         ipcRenderer.removeAllListeners('zip:crack-progress');
         ipcRenderer.removeAllListeners('zip:crack-complete');
         ipcRenderer.removeAllListeners('zip:crack-encryption');
         ipcRenderer.removeAllListeners('zip:crack-paused');
-        ipcRenderer.removeAllListeners('zip:crack-stopped');
     },
 
     // GPU Detection and Settings API

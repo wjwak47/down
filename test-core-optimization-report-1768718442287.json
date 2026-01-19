@@ -1,0 +1,110 @@
+{
+  "testSession": "test_core_optimization_1768718442253",
+  "timestamp": "2026-01-18T06:40:42.285Z",
+  "duration": 33,
+  "summary": {
+    "total": 11,
+    "passed": 1,
+    "failed": 10,
+    "successRate": 9.090909090909092
+  },
+  "details": [
+    {
+      "type": "SUCCESS",
+      "test": "参数验证",
+      "details": "正确处理无效参数",
+      "timestamp": 1768718442280
+    },
+    {
+      "type": "WARNING",
+      "test": "配置兼容性",
+      "details": "配置 0 失败: OptimizationIntegration is not a constructor",
+      "timestamp": 1768718442282
+    },
+    {
+      "type": "WARNING",
+      "test": "配置兼容性",
+      "details": "配置 1 失败: OptimizationIntegration is not a constructor",
+      "timestamp": 1768718442282
+    },
+    {
+      "type": "WARNING",
+      "test": "配置兼容性",
+      "details": "配置 2 失败: OptimizationIntegration is not a constructor",
+      "timestamp": 1768718442282
+    },
+    {
+      "type": "WARNING",
+      "test": "配置兼容性",
+      "details": "配置 3 失败: OptimizationIntegration is not a constructor",
+      "timestamp": 1768718442283
+    }
+  ],
+  "errors": [
+    {
+      "test": "组件初始化测试",
+      "error": "OptimizationIntegration is not a constructor",
+      "stack": "TypeError: OptimizationIntegration is not a constructor\n    at CoreOptimizationVerificationTest.testComponentInitialization (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:132:44)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:85:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442277
+    },
+    {
+      "test": "组件集成测试",
+      "error": "优化集成组件未初始化",
+      "stack": "Error: 优化集成组件未初始化\n    at CoreOptimizationVerificationTest.testComponentIntegration (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:174:23)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:88:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442278
+    },
+    {
+      "test": "性能监控测试",
+      "error": "Cannot read properties of null (reading 'performanceMonitor')",
+      "stack": "TypeError: Cannot read properties of null (reading 'performanceMonitor')\n    at CoreOptimizationVerificationTest.testPerformanceMonitoring (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:224:69)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:91:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442278
+    },
+    {
+      "test": "资源管理测试",
+      "error": "Cannot read properties of null (reading 'resourceManager')",
+      "stack": "TypeError: Cannot read properties of null (reading 'resourceManager')\n    at CoreOptimizationVerificationTest.testResourceManagement (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:265:66)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:94:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442279
+    },
+    {
+      "test": "策略管理测试",
+      "error": "Cannot read properties of null (reading 'enhancedStrategyManager')",
+      "stack": "TypeError: Cannot read properties of null (reading 'enhancedStrategyManager')\n    at CoreOptimizationVerificationTest.testStrategyManagement (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:317:66)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:97:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442279
+    },
+    {
+      "test": "实时优化调整测试",
+      "error": "Cannot read properties of null (reading 'startOptimization')",
+      "stack": "TypeError: Cannot read properties of null (reading 'startOptimization')\n    at CoreOptimizationVerificationTest.testRealTimeOptimization (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:380:75)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:100:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442280
+    },
+    {
+      "test": "错误处理测试",
+      "error": "Cannot read properties of null (reading 'resourceManager')",
+      "stack": "TypeError: Cannot read properties of null (reading 'resourceManager')\n    at CoreOptimizationVerificationTest.testErrorHandling (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:444:66)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:103:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442280
+    },
+    {
+      "test": "端到端集成测试",
+      "error": "Cannot read properties of null (reading 'startOptimization')",
+      "stack": "TypeError: Cannot read properties of null (reading 'startOptimization')\n    at CoreOptimizationVerificationTest.testEndToEndIntegration (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:500:68)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:106:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442281
+    },
+    {
+      "test": "性能基准测试",
+      "error": "OptimizationIntegration is not a constructor",
+      "stack": "TypeError: OptimizationIntegration is not a constructor\n    at CoreOptimizationVerificationTest.testPerformanceBenchmark (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:565:37)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:109:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442282
+    },
+    {
+      "test": "兼容性测试",
+      "error": "兼容性得分过低: 0.0%",
+      "stack": "Error: 兼容性得分过低: 0.0%\n    at CoreOptimizationVerificationTest.testCompatibility (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:665:43)\n    at CoreOptimizationVerificationTest.runAllTests (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:112:24)\n    at async runCoreOptimizationVerification (C:\\Users\\wjwak\\Desktop\\tools\\video-downloader\\test-core-optimization-verification.js:833:5)",
+      "timestamp": 1768718442283
+    }
+  ],
+  "recommendations": [
+    "修复失败的测试用例，确保核心功能稳定",
+    "关注警告信息，优化性能和资源使用",
+    "定期运行此验证测试，确保优化功能持续稳定"
+  ]
+}

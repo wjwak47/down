@@ -1,0 +1,115 @@
+{
+  "historicalData": {
+    "small_archive_personal_not_work": [
+      {
+        "features": {
+          "fileSize": "small",
+          "fileType": "archive",
+          "fileName": {
+            "hasDate": true,
+            "hasVersion": false,
+            "isBackup": false,
+            "isPersonal": true,
+            "isWork": false,
+            "hasNumbers": true,
+            "length": 20
+          },
+          "pathContext": {
+            "depth": 3,
+            "hasUserPath": true,
+            "hasWorkPath": false,
+            "hasPersonalPath": true
+          },
+          "timeContext": {
+            "ageCategory": "unknown",
+            "isRecentlyModified": false,
+            "creationYear": 2026
+          }
+        },
+        "strategy": "BALANCED_ADAPTIVE",
+        "success": true,
+        "elapsedTime": 240000,
+        "successfulPhase": "ai",
+        "attempts": 8000,
+        "timestamp": 1768720052555
+      }
+    ]
+  },
+  "featureWeights": {
+    "fileSize_\"small\"": {
+      "weight": 0.55,
+      "samples": 1
+    },
+    "fileType_\"archive\"": {
+      "weight": 0.55,
+      "samples": 1
+    },
+    "fileName_{\"hasDate\":true,\"hasVersion\":false,\"isBackup\":false,\"isPersonal\":true,\"isWork\":false,\"hasNumbers\":true,\"length\":20}": {
+      "weight": 0.55,
+      "samples": 1
+    },
+    "pathContext_{\"depth\":3,\"hasUserPath\":true,\"hasWorkPath\":false,\"hasPersonalPath\":true}": {
+      "weight": 0.55,
+      "samples": 1
+    },
+    "timeContext_{\"ageCategory\":\"unknown\",\"isRecentlyModified\":false,\"creationYear\":2026}": {
+      "weight": 0.55,
+      "samples": 1
+    }
+  },
+  "phaseSuccessRates": {
+    "ai": {
+      "attempts": 11,
+      "successes": 4
+    },
+    "top10k": {
+      "attempts": 10,
+      "successes": 4
+    },
+    "keyboard": {
+      "attempts": 10,
+      "successes": 2
+    },
+    "short_brute": {
+      "attempts": 10,
+      "successes": 2
+    },
+    "dictionary": {
+      "attempts": 10,
+      "successes": 3
+    },
+    "rule": {
+      "attempts": 10,
+      "successes": 3
+    },
+    "mask": {
+      "attempts": 10,
+      "successes": 2
+    },
+    "hybrid": {
+      "attempts": 10,
+      "successes": 2
+    },
+    "cpu": {
+      "attempts": 10,
+      "successes": 1
+    },
+    "bkcrack": {
+      "attempts": 10,
+      "successes": 1
+    },
+    "date_range": {
+      "attempts": 10,
+      "successes": 2
+    },
+    "keyboard_walk": {
+      "attempts": 10,
+      "successes": 1
+    },
+    "social_engineering": {
+      "attempts": 10,
+      "successes": 2
+    }
+  },
+  "lastUpdated": 1768720052555
+}

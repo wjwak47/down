@@ -105,7 +105,7 @@ def main():
             if args_file_idx + 1 < len(sys.argv):
                 args_file = sys.argv[args_file_idx + 1]
                 print(f"[PassGPT] Reading args from file: {args_file}", file=sys.stderr, flush=True)
-                with open(args_file, 'r') as f:
+                with open(args_file, 'r', encoding='utf-8-sig') as f:  # utf-8-sig handles BOM
                     args = json.load(f)
             else:
                 raise ValueError("--args-file requires a file path")

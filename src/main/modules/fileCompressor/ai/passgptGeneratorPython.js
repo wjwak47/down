@@ -20,10 +20,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 class PassGPTGeneratorPython {
-    constructor() {
+    constructor(sessionId = null, registerProcessFn = null) {
         this.modelLoaded = false;
         this.maxLength = 10;
         this.pythonPath = 'python'; // or 'python3'
+        this.activeProcesses = new Set(); // Track active Python processes
+        this.sessionId = sessionId; // Store sessionId for process registration
+        this.registerProcess = registerProcessFn; // Store registerProcess function
     }
     
     /**
@@ -140,6 +143,20 @@ class PassGPTGeneratorPython {
             
             const python = spawn(this.pythonPath, [scriptPath, '--args-file', tempArgsFile]);
             
+            // Track this process locally only
+            this.activeProcesses.add(python);
+            
+            // ❌ 移除主进程注册 - PassGPT 生成器应该自己管理进程，不需要注册到主进程注册表
+            // 这可能导致无限循环，特别是在流式生成模式下
+            // if (this.sessionId && this.registerProcess) {
+            //     this.registerProcess(this.sessionId, python);
+            // }
+            
+            // Remove from tracking when process ends
+            python.on('close', () => {
+                this.activeProcesses.delete(python);
+            });
+            
             let stdout = '';
             let stderr = '';
             
@@ -213,6 +230,28 @@ class PassGPTGeneratorPython {
      */
     async dispose() {
         console.log('[PassGPT-Python] Releasing resources...');
+        
+        // Terminate all active Python processes
+        for (const process of this.activeProcesses) {
+            try {
+                if (process && process.pid && !process.killed) {
+                    console.log('[PassGPT-Python] Terminating Python process PID:', process.pid);
+                    process.kill('SIGTERM');
+                    
+                    // Force kill after 2 seconds if still running
+                    setTimeout(() => {
+                        if (!process.killed) {
+                            console.log('[PassGPT-Python] Force killing Python process PID:', process.pid);
+                            process.kill('SIGKILL');
+                        }
+                    }, 2000);
+                }
+            } catch (error) {
+                console.log('[PassGPT-Python] Error terminating process:', error.message);
+            }
+        }
+        
+        this.activeProcesses.clear();
         this.modelLoaded = false;
     }
     

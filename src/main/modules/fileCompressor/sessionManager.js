@@ -279,6 +279,54 @@ class SessionManager {
     }
 
     /**
+     * 清理僵尸会话（启动时清理可能残留的运行中会话）
+     */
+    cleanupZombieSessions() {
+        try {
+            const files = fs.readdirSync(this.sessionDir);
+            let cleaned = 0;
+
+            for (const file of files) {
+                if (file.endsWith('.json')) {
+                    const sessionFile = path.join(this.sessionDir, file);
+                    try {
+                        const sessionData = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+                        
+                        // 将所有运行中或暂停的会话标记为失败（应用重启意味着之前的进程已终止）
+                        if (sessionData.status === 'running' || sessionData.status === 'paused') {
+                            console.log(`[SessionManager] Cleaning zombie session: ${sessionData.id} (${sessionData.fileName})`);
+                            
+                            // 更新状态为失败
+                            sessionData.status = 'failed';
+                            sessionData.endTime = Date.now();
+                            sessionData.lastUpdateTime = Date.now();
+                            
+                            // 写回文件
+                            fs.writeFileSync(sessionFile, JSON.stringify(sessionData, null, 2));
+                            cleaned++;
+                        }
+                    } catch (error) {
+                        console.error('[SessionManager] Failed to process session file:', file, error);
+                        // 如果文件损坏，直接删除
+                        try {
+                            fs.unlinkSync(sessionFile);
+                            console.log('[SessionManager] Deleted corrupted session file:', file);
+                        } catch (deleteError) {
+                            console.error('[SessionManager] Failed to delete corrupted file:', deleteError);
+                        }
+                    }
+                }
+            }
+
+            if (cleaned > 0) {
+                console.log(`[SessionManager] Cleaned up ${cleaned} zombie sessions`);
+            }
+        } catch (error) {
+            console.error('[SessionManager] Failed to cleanup zombie sessions:', error);
+        }
+    }
+
+    /**
      * 生成会话ID（基于文件路径的哈希）
      * @private
      */

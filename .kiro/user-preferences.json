@@ -1,0 +1,41 @@
+{
+  "defaultMode": "INTEGRATION_TEST",
+  "preferGPU": true,
+  "maxTime": null,
+  "skipSlowPhases": false,
+  "phaseSettings": {
+    "dictionary": {
+      "enabled": false,
+      "timestamp": 1768720099211
+    },
+    "rule": {
+      "enabled": false,
+      "timestamp": 1768720099211
+    }
+  },
+  "customStrategies": {
+    "INTEGRATION_TEST": {
+      "name": "Integration Test",
+      "description": "用户自定义策略",
+      "phases": [
+        "ai",
+        "top10k",
+        "keyboard",
+        "dictionary"
+      ],
+      "weights": {
+        "ai": 0.4000000000000001,
+        "top10k": 0.30000000000000004,
+        "keyboard": 0.20000000000000004,
+        "dictionary": 0.10000000000000002
+      },
+      "timeouts": {},
+      "skipSlowPhases": false,
+      "maxTotalTime": null,
+      "adaptiveTimeouts": true,
+      "characteristics": [
+        "自定义配置"
+      ]
+    }
+  }
+}

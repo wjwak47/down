@@ -202,7 +202,7 @@ app.whenReady().then(() => {
 
             imgProtocol.get(resourceUrl, imgOptions, (imgResponse) => {
                 console.log('[Proxy] Image response status:', imgResponse.statusCode);
-                
+
                 // Handle redirects
                 if (imgResponse.statusCode === 301 || imgResponse.statusCode === 302 || imgResponse.statusCode === 307) {
                     const redirectUrl = imgResponse.headers.location;
@@ -447,16 +447,16 @@ app.whenReady().then(() => {
     // Image proxy for Bilibili thumbnails (anti-hotlinking bypass)
     ipcMain.handle('get-image-proxy-url', async (_, imageUrl) => {
         if (!imageUrl) return null;
-        
+
         // Only proxy Bilibili images (hdslb.com domain)
         if (!imageUrl.includes('hdslb.com') && !imageUrl.includes('bilibili.com')) {
             return imageUrl; // Return original URL for non-Bilibili images
         }
-        
+
         const imageId = 'img_' + Date.now().toString(36) + Math.random().toString(36).substr(2);
         console.log('[Proxy] Caching image ID:', imageId, 'URL:', imageUrl);
-        videoCache.set(imageId, { 
-            url: imageUrl, 
+        videoCache.set(imageId, {
+            url: imageUrl,
             isImage: true,
             headers: {
                 'Referer': 'https://www.bilibili.com/',
@@ -471,13 +471,56 @@ app.whenReady().then(() => {
     });
 
     ipcMain.on('download-subtitles', (event, { url, options, id }) => {
+        const downloadDir = options.downloadDir || app.getPath('downloads');
         const child = ytDlpService.downloadSubtitles(url, options, (progress) => {
             event.reply('download-progress', { id, progress });
         });
 
         child.on('close', (code) => {
-            event.reply('download-complete', { id, code });
-            // User can manually open folder if needed
+            // 字幕下载完成后，尝试找到最近创建的字幕文件
+            let subtitlePath = downloadDir;
+            let fileExt = options.format?.toUpperCase() || 'SRT';
+
+            try {
+                // 查找最近创建的字幕文件
+                const files = fs.readdirSync(downloadDir);
+                const now = Date.now();
+                const subtitleExts = ['.srt', '.vtt', '.ass', '.txt', '.json3'];
+                const recentFiles = files
+                    .map(f => {
+                        const fullPath = require('path').join(downloadDir, f);
+                        try {
+                            const stat = fs.statSync(fullPath);
+                            const ext = require('path').extname(f).toLowerCase();
+                            return {
+                                name: f,
+                                path: fullPath,
+                                mtime: stat.mtimeMs,
+                                isFile: stat.isFile(),
+                                isSubtitle: subtitleExts.includes(ext)
+                            };
+                        } catch {
+                            return null;
+                        }
+                    })
+                    .filter(f => f && f.isFile && f.isSubtitle && (now - f.mtime) < 60000)
+                    .sort((a, b) => b.mtime - a.mtime);
+
+                if (recentFiles.length > 0) {
+                    subtitlePath = recentFiles[0].path;
+                    fileExt = require('path').extname(recentFiles[0].name).slice(1).toUpperCase();
+                    console.log(`[Main] Found subtitle file: ${subtitlePath}`);
+                }
+            } catch (e) {
+                console.error('[Main] Error finding subtitle file:', e);
+            }
+
+            event.reply('download-complete', {
+                id,
+                code,
+                filePath: subtitlePath,
+                fileExt
+            });
         });
     });
 
@@ -485,8 +528,8 @@ app.whenReady().then(() => {
         // Pass id to service
         const child = ytDlpService.downloadVideo(url, options, id, (progressData) => {
             // progressData now contains: { progress, speed, downloadedSize, totalSize, eta }
-            event.reply('download-progress', { 
-                id, 
+            event.reply('download-progress', {
+                id,
                 progress: progressData.progress || 0,
                 speed: progressData.speed || 0,
                 downloadedSize: progressData.downloadedSize || 0,
@@ -521,11 +564,11 @@ app.whenReady().then(() => {
             // Get actual file size and extension if file exists
             let fileSize = 0;
             let fileExt = options.audioOnly ? 'm4a' : 'mp4'; // Default based on download type
-            
+
             if (outputPath) {
                 console.log(`[Main] Checking file at: ${outputPath}`);
                 console.log(`[Main] File exists: ${fs.existsSync(outputPath)}`);
-                
+
                 if (fs.existsSync(outputPath)) {
                     try {
                         const stats = fs.statSync(outputPath);
@@ -544,7 +587,7 @@ app.whenReady().then(() => {
                     // Try to find the file in the download directory
                     const downloadDir = options.downloadDir || app.getPath('downloads');
                     console.log(`[Main] File not found at outputPath, searching in: ${downloadDir}`);
-                    
+
                     // Look for recently created files (within last 60 seconds)
                     try {
                         const files = fs.readdirSync(downloadDir);
@@ -561,7 +604,7 @@ app.whenReady().then(() => {
                             })
                             .filter(f => f && f.isFile && (now - f.mtime) < 60000 && /\.(mp4|webm|mkv|m4a|mp3)$/i.test(f.name))
                             .sort((a, b) => b.mtime - a.mtime);
-                        
+
                         if (recentFiles.length > 0) {
                             const mostRecent = recentFiles[0];
                             outputPath = mostRecent.path;
@@ -575,9 +618,9 @@ app.whenReady().then(() => {
                 }
             }
 
-            event.reply('download-complete', { 
-                id, 
-                code, 
+            event.reply('download-complete', {
+                id,
+                code,
                 filePath: outputPath,
                 fileSize,
                 fileExt

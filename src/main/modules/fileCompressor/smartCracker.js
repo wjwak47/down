@@ -61,34 +61,65 @@ const SMART_DICTIONARY = [
     'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
     '00', '11', '22', '33', '44', '55', '66', '77', '88', '99',
     '01', '10', '12', '21', '23', '32', '34', '43', '56', '65', '69', '96',
-    
+
     // ★★★ 超高频密码 - 必须最先尝试 ★★★
     'password', 'password123', 'password1', '123456', 'a123456', 'admin123',
     '12345678', 'qwerty', '123456789', 'abc123', '111111', '1234567890',
     'admin', 'root', 'test', '123123', 'iloveyou', 'welcome', 'monkey',
     'dragon', 'master', 'letmein', 'login', 'princess', 'qwerty123',
     'solo', 'passw0rd', 'starwars', 'aa123456', 'password12', 'password!',
-    
+
     // ★★ 高频简单密码 ★★
     '12345', '1234', '1234567', '654321', '123321', '666666', '888888',
     '000000', '111111', '121212', '123qwe', 'qazwsx', '1qaz2wsx', 'zxcvbnm',
     'asdfgh', 'qwertyuiop', '1q2w3e4r', 'q1w2e3r4', 'asdf1234', 'zxcv1234',
-    
+
     // ★★ 常见字母数字组合 ★★
     'a12345', 'a1234', 'a123', 'abc1234', 'abcd1234', 'abc12345',
     'test123', 'user123', 'pass123', 'root123', 'guest123', 'hello123',
     'aaa111', 'aaa123', 'aaaa1111', 'abcdef', 'abcdefg', 'abcdefgh',
-    
-    // ★ 中文拼音常见 ★
+
+    // ★★ 中文拼音 - 爱情/浪漫相关 ★★
     'woaini', 'woaini520', '5201314', '520520', 'aini', 'nihao', 'wozuishuai',
-    'woaini1314', 'aini520', 'mima', 'mima123', 'wode', 'wodema',
-    'daniu', 'niubi', 'wocao',
-    
+    'woaini1314', 'aini520', 'mima', 'mima123', 'wode', 'wodema', 'wodemima',
+    'daniu', 'niubi', 'wocao', 'woainima', 'aini1314', 'woai520', 'aiqing',
+    '1314520', '5211314', '520131', 'xihuan', 'xihuanni', 'woaiwo', 'aiwo',
+    'qinaide', 'laopo', 'laogong', 'baobei', 'baobeiya', 'wodeai', 'yongyuan',
+    'forever', 'aiqing520', 'love520', 'woxihuanni', 'womendexihuanni',
+
+    // ★★ 中文拼音 - 常见姓名 ★★
+    'zhangsan', 'lisi', 'wangwu', 'zhangliang', 'wangwei', 'liwei', 'zhangwei',
+    'wangfang', 'lifang', 'zhangfang', 'wangli', 'liming', 'zhangming', 'wangming',
+    'lihua', 'zhanghua', 'wanghua', 'lijun', 'zhangjun', 'wangjun', 'ligang',
+    'zhanggang', 'wanggang', 'liqiang', 'zhangqiang', 'wangqiang', 'chenwei',
+    'yangwei', 'huangwei', 'zhouwei', 'wuwei', 'sunwei', 'mawei', 'zhuwei',
+    'huwei', 'linwei', 'guowei', 'hewei', 'gaowei', 'luowei', 'wangxiaowei',
+    'xiaoming', 'xiaohong', 'xiaogang', 'xiaoli', 'xiaowang', 'xiaohua', 'xiaofang',
+
+    // ★★ 中文拼音 - 常用词汇 ★★
+    'zhongguo', 'beijing', 'shanghai', 'guangzhou', 'shenzhen', 'hangzhou',
+    'nanjing', 'chengdu', 'wuhan', 'xian', 'tianjin', 'chongqing', 'suzhou',
+    'jiayou', 'jiayoua', 'ganbei', 'haohaoxuexi', 'tiantianxiangshang',
+    'xinniankuaile', 'shengrikuaile', 'guonianle', 'chunjie', 'zhongqiu',
+    'zhongguoren', 'renmin', 'gongheguo', 'daxue', 'xuesheng', 'gongzuo',
+
+    // ★★ 中文特殊数字含义 ★★
+    '520', '1314', '521', '5201314', '1314520', '520520', '521521', '5211314',
+    '168', '1688', '888', '8888', '88888', '888888', '666', '6666', '66666', '666666',
+    '518', '5188', '51888', '918', '1688168', '168168', '1818', '18181818',
+    '748', '7456', '250', '38', '286', '2B', '213', '131452', '52013', '131420',
+    '9527', '007', '1573', '555', '5555', '55555', '555555',
+    '110', '119', '120', '12306', '114', '10086', '10010', '95588', '95533',
+
+    // ★★ 中文拼音 - 脏话/俚语 ★★
+    'caonima', 'shabi', 'tmd', 'nimabi', 'cnm', 'sb', 'nmsb', 'gundan',
+    'niubi', 'nb', 'diaosi', 'geili', 'bugeili', 'jiong', 'zhuangbi', 'shuale',
+
     // 键盘模式
     'qwerty', 'asdfgh', 'zxcvbn', 'qweasd', 'qazwsx', '1qaz2wsx', 'qwer1234',
     'qwertyui', 'asdfghjk', 'zxcvbnm', '1q2w3e', 'qweasdzxc', '1234qwer', 'qwer',
     'asdf', 'zxcv', '147258369', '159357', '147852369', '741852963',
-    
+
     // 简单数字序列
     '0', '1', '12', '123', '1234', '12345', '123456', '1234567', '12345678',
     '123456789', '1234567890', '0000', '00000', '000000', '0000000', '00000000',
@@ -97,12 +128,12 @@ const SMART_DICTIONARY = [
     '6666', '66666', '666666', '6666666', '66666666', '7777', '77777', '777777',
     '8888', '88888', '888888', '8888888', '88888888', '9999', '99999', '999999',
     '123321', '12321', '1221', '112233', '11223344', '1122', '2233', '3344',
-    
+
     // 常见单词
     'password', 'admin', 'root', 'test', 'guest', 'user', 'login', 'welcome',
     'hello', 'secret', 'pass', 'pwd', 'passwd', 'administrator', 'manager',
     'system', 'server', 'default', 'changeme', 'temp', 'demo', 'sample',
-    
+
     // Top 200 最常见密码（补充）
     'mustang', 'michael', 'superman', '7777777', 'killer', 'trustno1',
     'jordan', 'jennifer', 'hunter', 'buster', 'soccer', 'harley', 'batman',
@@ -113,18 +144,18 @@ const SMART_DICTIONARY = [
     'amanda', 'summer', 'love', 'ashley', '6969', 'nicole', 'chelsea',
     'biteme', 'matthew', 'access', 'yankees', '987654321', 'dallas', 'austin',
     'thunder', 'taylor', 'matrix', 'baseball', 'football',
-    
+
     // 年份
     '1970', '1980', '1985', '1990', '1991', '1992', '1993', '1994', '1995',
     '1996', '1997', '1998', '1999', '2000', '2001', '2002', '2003', '2004',
     '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013',
     '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022',
     '2023', '2024', '2025', '2026',
-    
+
     // 爱情/情感相关
     'love', 'baby', 'angel', 'honey', 'sweety', 'iloveu', 'loveyou', 'mylove',
     'babe', 'darling', 'sweetie', 'lover', 'beloved', 'heart', 'kiss', 'hugs',
-    
+
     // 名字常见
     'michael', 'jennifer', 'jessica', 'ashley', 'amanda', 'sarah', 'david',
     'james', 'john', 'robert', 'william', 'richard', 'joseph', 'thomas',
@@ -143,12 +174,12 @@ const SMART_DICTIONARY = [
  */
 function applyRules(word) {
     const variants = new Set([word]);
-    
+
     // 1. 大小写变换（3种）
     variants.add(word.toLowerCase());
     variants.add(word.toUpperCase());
     variants.add(word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()); // 首字母大写
-    
+
     // 2. 高频 Leet speak 变换（只保留最常见的3种）
     // 完全 leet
     const leetMap = { 'a': '@', 'e': '3', 'i': '1', 'o': '0', 's': '$', 't': '7', 'l': '1' };
@@ -157,18 +188,18 @@ function applyRules(word) {
         leetWord = leetWord.replace(new RegExp(char, 'g'), leet);
     }
     variants.add(leetWord);
-    
+
     // 部分 leet（只保留最常见的2种）
     variants.add(word.replace(/a/gi, '@'));  // password -> p@ssword
     variants.add(word.replace(/o/gi, '0'));  // password -> passw0rd
-    
+
     // 3. 高频数字后缀（从14种减少到8种）
     const suffixes = ['1', '123', '1234', '!', '12', '01', '123!', '1!'];
     for (const suffix of suffixes) {
         variants.add(word + suffix);
         variants.add(word.charAt(0).toUpperCase() + word.slice(1) + suffix); // 首字母大写+后缀
     }
-    
+
     // 4. 年份后缀（从74种减少到12种：只保留最近10年+当前年份的两位数）
     const currentYear = new Date().getFullYear();
     const recentYears = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4];
@@ -179,19 +210,19 @@ function applyRules(word) {
     // 额外添加2000和2020（常见年份）
     variants.add(word + '2000');
     variants.add(word + '2020');
-    
+
     // 5. 特殊字符后缀（从8种减少到3种：只保留最常见的）
     const specialSuffixes = ['!', '@', '!@'];
     for (const s of specialSuffixes) {
         variants.add(word + s);
     }
-    
+
     // 6. 数字前缀（保留3种）
     const prefixes = ['1', '123', '!'];
     for (const prefix of prefixes) {
         variants.add(prefix + word);
     }
-    
+
     // 7. 重复字符（保留2种）
     if (word.length <= 4) { // 只对短单词重复，避免生成过长密码
         variants.add(word + word); // password -> passwordpassword
@@ -199,10 +230,10 @@ function applyRules(word) {
     if (word.length > 0) {
         variants.add(word + word.charAt(word.length - 1)); // password -> passwordd
     }
-    
+
     // 8. 反转（保留1种）
     variants.add(word.split('').reverse().join('')); // password -> drowssap
-    
+
     return Array.from(variants);
 }
 
@@ -212,27 +243,27 @@ function applyRules(word) {
  */
 function* generateMarkovPasswords(minLen, maxLen, maxCount = 100000) {
     let count = 0;
-    
+
     for (let len = minLen; len <= maxLen && count < maxCount; len++) {
         for (const startChar of MARKOV_PROBS.start) {
             if (count >= maxCount) return;
-            
+
             // 使用栈代替队列（pop() 是 O(1)，shift() 是 O(n)）
             const stack = [[startChar]];
-            
+
             while (stack.length > 0 && count < maxCount) {
                 const current = stack.pop();  // O(1) 操作，比 shift() 快 50 倍
-                
+
                 if (current.length === len) {
                     count++;
                     yield current.join('');
                     continue;
                 }
-                
+
                 const lastChar = current[current.length - 1].toLowerCase();
                 const nextChars = MARKOV_PROBS.transitions[lastChar] || 'aeiou0123456789';
                 const topChars = nextChars.slice(0, Math.min(5, nextChars.length));
-                
+
                 for (const nextChar of topChars) {
                     if (current.length + 1 <= len) {
                         stack.push([...current, nextChar]);
@@ -250,13 +281,13 @@ function* generateDatePatterns() {
     for (let year = 1970; year <= 2026; year++) {
         const yy = (year % 100).toString().padStart(2, '0');
         const yyyy = year.toString();
-        
+
         for (let month = 1; month <= 12; month++) {
             const mm = month.toString().padStart(2, '0');
-            
+
             for (let day = 1; day <= 31; day++) {
                 const dd = day.toString().padStart(2, '0');
-                
+
                 yield `${yyyy}${mm}${dd}`;
                 yield `${dd}${mm}${yyyy}`;
                 yield `${mm}${dd}${yyyy}`;
@@ -273,7 +304,7 @@ function* generateDatePatterns() {
  */
 function* generateKeyboardPatterns() {
     const rows = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
-    
+
     for (const row of rows) {
         for (let start = 0; start < row.length; start++) {
             for (let len = 3; len <= Math.min(8, row.length - start); len++) {
@@ -281,24 +312,24 @@ function* generateKeyboardPatterns() {
             }
         }
     }
-    
+
     const diagonals = [
         '1qaz', '2wsx', '3edc', '4rfv', '5tgb', '6yhn', '7ujm',
         'zaq1', 'xsw2', 'cde3', 'vfr4', 'bgt5', 'nhy6', 'mju7',
         '1qaz2wsx', '2wsx3edc', '3edc4rfv', 'qazwsx', 'wsxedc', 'edcrfv'
     ];
-    
+
     for (const pattern of diagonals) {
         yield pattern;
         yield pattern.toUpperCase();
     }
-    
+
     const numpadPatterns = [
         '147', '258', '369', '123', '456', '789',
         '147258', '258369', '123456', '456789',
         '147258369', '159357', '951753', '741852963', '963852741', '159753'
     ];
-    
+
     for (const pattern of numpadPatterns) {
         yield pattern;
     }
@@ -309,13 +340,13 @@ function* generateKeyboardPatterns() {
  */
 function* generateRepeatPatterns() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    
+
     for (const char of chars) {
         for (let len = 3; len <= 8; len++) {
             yield char.repeat(len);
         }
     }
-    
+
     for (let i = 0; i < chars.length; i++) {
         for (let j = 0; j < chars.length; j++) {
             const pair = chars[i] + chars[j];
@@ -332,7 +363,7 @@ function* generateRepeatPatterns() {
 function* smartPasswordGenerator(options = {}) {
     const { minLength = 1, maxLength = 8 } = options;
     const seen = new Set();
-    
+
     // 阶段 0: 单字符密码（如果 minLength = 1）
     if (minLength === 1) {
         console.log('[SmartCracker] Phase 0: Single Character Passwords');
@@ -345,7 +376,7 @@ function* smartPasswordGenerator(options = {}) {
             }
         }
     }
-    
+
     // 阶段 1: 智能词典 + 规则变换
     console.log('[SmartCracker] Phase 1: Dictionary + Rules');
     for (const word of SMART_DICTIONARY) {
@@ -357,7 +388,7 @@ function* smartPasswordGenerator(options = {}) {
             }
         }
     }
-    
+
     // 阶段 2: 日期模式
     console.log('[SmartCracker] Phase 2: Date Patterns');
     for (const pwd of generateDatePatterns()) {
@@ -366,7 +397,7 @@ function* smartPasswordGenerator(options = {}) {
             yield pwd;
         }
     }
-    
+
     // 阶段 3: 键盘模式
     console.log('[SmartCracker] Phase 3: Keyboard Patterns');
     for (const pwd of generateKeyboardPatterns()) {
@@ -375,7 +406,7 @@ function* smartPasswordGenerator(options = {}) {
             yield pwd;
         }
     }
-    
+
     // 阶段 4: 重复模式
     console.log('[SmartCracker] Phase 4: Repeat Patterns');
     for (const pwd of generateRepeatPatterns()) {
@@ -384,7 +415,7 @@ function* smartPasswordGenerator(options = {}) {
             yield pwd;
         }
     }
-    
+
     // 阶段 5: Markov Chain 生成
     console.log('[SmartCracker] Phase 5: Markov Chain');
     for (const pwd of generateMarkovPasswords(minLength, maxLength, 50000)) {

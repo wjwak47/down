@@ -19,23 +19,23 @@ class StatsCollector {
         this.sessionId = sessionId;
         this.startTime = Date.now();
         this.lastUpdateTime = Date.now();
-        
+
         // 进度信息
         this.currentPhase = null;
         this.totalPhases = 0;
         this.testedPasswords = 0;
         this.totalPasswords = 0;
-        
+
         // 速度信息
         this.currentSpeed = 0;
         this.speedHistory = [];
         this.maxSpeedHistorySize = 10;
-        
+
         // Phase统计
         this.phaseStats = new Map();
         this.currentPhaseStartTime = null;
         this.currentPhaseTestedPasswords = 0;
-        
+
         // 历史记录
         this.speedSamples = [];
         this.maxSamples = 100;
@@ -59,13 +59,13 @@ class StatsCollector {
     updateSpeed(speed) {
         this.currentSpeed = speed;
         this.lastUpdateTime = Date.now();
-        
+
         // 添加到速度历史
         this.speedHistory.push(speed);
         if (this.speedHistory.length > this.maxSpeedHistorySize) {
             this.speedHistory.shift();
         }
-        
+
         // 添加到采样历史
         this.speedSamples.push({
             time: Date.now(),
@@ -86,12 +86,12 @@ class StatsCollector {
         if (this.currentPhase) {
             this.endPhase();
         }
-        
+
         this.currentPhase = phaseName;
         this.totalPhases = totalPhases;
         this.currentPhaseStartTime = Date.now();
         this.currentPhaseTestedPasswords = 0;
-        
+
         console.log(`[StatsCollector] Started phase: ${phaseName}`);
     }
 
@@ -100,10 +100,10 @@ class StatsCollector {
      */
     endPhase() {
         if (!this.currentPhase) return;
-        
+
         const duration = Date.now() - this.currentPhaseStartTime;
         const avgSpeed = this.currentPhaseTestedPasswords / (duration / 1000);
-        
+
         this.phaseStats.set(this.currentPhase, {
             name: this.currentPhase,
             duration,
@@ -112,7 +112,7 @@ class StatsCollector {
             startTime: this.currentPhaseStartTime,
             endTime: Date.now()
         });
-        
+
         console.log(`[StatsCollector] Ended phase: ${this.currentPhase}, tested: ${this.currentPhaseTestedPasswords}, avg speed: ${Math.round(avgSpeed)} pwd/s`);
     }
 
@@ -131,29 +131,29 @@ class StatsCollector {
     getStats() {
         const now = Date.now();
         const elapsed = (now - this.startTime) / 1000; // 秒
-        
+
         return {
             sessionId: this.sessionId,
             startTime: this.startTime,
             lastUpdateTime: this.lastUpdateTime,
             elapsedTime: elapsed,
-            
+
             // 进度信息
             currentPhase: this.currentPhase,
             totalPhases: this.totalPhases,
             testedPasswords: this.testedPasswords,
             totalPasswords: this.totalPasswords,
             progress: this._calculateProgress(),
-            
+
             // 速度信息
             currentSpeed: this.currentSpeed,
             averageSpeed: this._calculateAverageSpeed(),
             peakSpeed: this._calculatePeakSpeed(),
-            
+
             // 预估信息
             estimatedTimeRemaining: this._estimateTimeRemaining(),
             estimatedCompletion: this._estimateCompletionTime(),
-            
+
             // Phase统计
             phaseStats: Array.from(this.phaseStats.values()),
             currentPhaseProgress: this._calculatePhaseProgress()
@@ -166,7 +166,7 @@ class StatsCollector {
      */
     getSimpleStats() {
         const stats = this.getStats();
-        
+
         return {
             speed: this._formatSpeed(stats.currentSpeed),
             progress: `${stats.progress}%`,
@@ -222,15 +222,86 @@ class StatsCollector {
     }
 
     /**
-     * 估算剩余时间（秒）
+     * 估算剩余时间（秒）- 使用加权移动平均提高准确性
      * @private
      */
     _estimateTimeRemaining() {
-        const avgSpeed = this._calculateAverageSpeed();
-        if (avgSpeed === 0) return 0;
-        
-        const remaining = this.totalPasswords - this.testedPasswords;
-        return Math.round(remaining / avgSpeed);
+        // 优先使用最近的速度数据（更准确）
+        const recentSpeed = this._getRecentAverageSpeed();
+        const overallAvgSpeed = this._calculateAverageSpeed();
+
+        // 加权平均：最近速度占70%，整体平均占30%
+        const weightedSpeed = recentSpeed > 0
+            ? (recentSpeed * 0.7) + (overallAvgSpeed * 0.3)
+            : overallAvgSpeed;
+
+        if (weightedSpeed === 0) return 0;
+
+        // 如果有总密码数，基于剩余密码计算
+        if (this.totalPasswords > 0) {
+            const remaining = this.totalPasswords - this.testedPasswords;
+            return Math.max(0, Math.round(remaining / weightedSpeed));
+        }
+
+        // 如果没有总密码数（常见于GPU攻击），基于当前阶段估算
+        // 使用启发式方法：根据当前阶段进度和历史阶段耗时估算
+        return this._estimatePhaseBasedTime(weightedSpeed);
+    }
+
+    /**
+     * 获取最近的平均速度（使用最近5个样本）
+     * @private
+     */
+    _getRecentAverageSpeed() {
+        if (this.speedHistory.length === 0) return 0;
+
+        // 使用最近5个速度样本，给最新的样本更高权重
+        const recentSamples = this.speedHistory.slice(-5);
+        if (recentSamples.length === 0) return 0;
+
+        // 指数加权移动平均 (EWMA)
+        const alpha = 0.5; // 平滑因子
+        let ewma = recentSamples[0];
+        for (let i = 1; i < recentSamples.length; i++) {
+            ewma = alpha * recentSamples[i] + (1 - alpha) * ewma;
+        }
+
+        return Math.round(ewma);
+    }
+
+    /**
+     * 基于阶段估算剩余时间
+     * @private
+     */
+    _estimatePhaseBasedTime(currentSpeed) {
+        if (!this.currentPhaseStartTime || currentSpeed === 0) return 0;
+
+        // 当前阶段已运行时间
+        const phaseElapsed = (Date.now() - this.currentPhaseStartTime) / 1000;
+
+        // 基于历史阶段耗时估算
+        const completedPhases = this.phaseStats.size;
+        const remainingPhases = Math.max(0, this.totalPhases - completedPhases - 1);
+
+        // 计算已完成阶段的平均耗时
+        let avgPhaseDuration = 0;
+        if (completedPhases > 0) {
+            let totalDuration = 0;
+            this.phaseStats.forEach(stat => {
+                totalDuration += stat.duration / 1000; // 转换为秒
+            });
+            avgPhaseDuration = totalDuration / completedPhases;
+        } else {
+            // 没有历史数据，假设每个阶段平均30秒
+            avgPhaseDuration = 30;
+        }
+
+        // 估算：当前阶段剩余 + 未来阶段
+        // 启发式：假设当前阶段完成度基于已运行时间 vs 平均阶段时间
+        const currentPhaseRemaining = Math.max(0, avgPhaseDuration - phaseElapsed);
+        const futurePhaseTime = remainingPhases * avgPhaseDuration;
+
+        return Math.round(currentPhaseRemaining + futurePhaseTime);
     }
 
     /**
@@ -249,10 +320,10 @@ class StatsCollector {
      */
     _calculatePhaseProgress() {
         if (!this.currentPhaseStartTime) return 0;
-        
+
         const elapsed = Date.now() - this.currentPhaseStartTime;
         const speed = this.currentPhaseTestedPasswords / (elapsed / 1000);
-        
+
         return {
             tested: this.currentPhaseTestedPasswords,
             speed: Math.round(speed),
@@ -279,18 +350,31 @@ class StatsCollector {
      * @private
      */
     _formatTime(seconds) {
-        if (seconds === 0 || !seconds) return 'Unknown';
-        
-        const hours = Math.floor(seconds / 3600);
+        // 刚开始时，显示"Calculating..."
+        if (seconds === 0 || !seconds || !isFinite(seconds)) {
+            const elapsed = (Date.now() - this.startTime) / 1000;
+            if (elapsed < 5) {
+                return 'Calculating...';
+            }
+            return 'Unknown';
+        }
+
+        // 超过24小时显示天数
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
         const secs = Math.floor(seconds % 60);
-        
-        if (hours > 0) {
+
+        if (days > 0) {
+            return `${days}d ${hours}h`;
+        } else if (hours > 0) {
             return `${hours}h ${minutes}m`;
         } else if (minutes > 0) {
             return `${minutes}m ${secs}s`;
-        } else {
+        } else if (secs > 0) {
             return `${secs}s`;
+        } else {
+            return '< 1s';
         }
     }
 

@@ -22,8 +22,10 @@ import sevenBin from '7zip-bin';
 const pathTo7zip = sevenBin.path7za;
 
 class BatchTestManager {
-    constructor(batchSize = 100) {
+    constructor(batchSize = 100, sessionId = null, registerProcessFn = null) {
         this.batchSize = batchSize;
+        this.sessionId = sessionId; // Store sessionId for process registration
+        this.registerProcess = registerProcessFn; // Store registerProcess function
         this.passwordQueue = [];
         this.stats = {
             totalTested: 0,
@@ -200,11 +202,24 @@ class BatchTestManager {
                 windowsHide: true
             });
 
+            // ✅ 重新启用进程注册 - 但只注册到本地跟踪，不注册到主进程注册表
+            // 这样可以在 BatchTestManager 内部管理这些进程
+            this.activeProcesses = this.activeProcesses || new Set();
+            this.activeProcesses.add(proc);
+            
+            // 进程结束时从本地跟踪中移除
+            const cleanup = () => {
+                if (this.activeProcesses) {
+                    this.activeProcesses.delete(proc);
+                }
+            };
+
             let resolved = false;
 
             proc.on('close', (code) => {
                 if (!resolved) {
                     resolved = true;
+                    cleanup();
                     resolve({
                         success: code === 0,
                         password: code === 0 ? password : null
@@ -215,6 +230,7 @@ class BatchTestManager {
             proc.on('error', () => {
                 if (!resolved) {
                     resolved = true;
+                    cleanup();
                     resolve({ success: false, password: null });
                 }
             });
@@ -228,10 +244,34 @@ class BatchTestManager {
                     } catch (e) {
                         // 忽略kill错误
                     }
+                    cleanup();
                     resolve({ success: false, password: null });
                 }
             }, 2000);
         });
+    }
+
+    /**
+     * 终止所有活动的密码测试进程
+     */
+    terminateAllProcesses() {
+        if (!this.activeProcesses) return;
+        
+        console.log(`[BatchTestManager] Terminating ${this.activeProcesses.size} active processes...`);
+        
+        for (const proc of this.activeProcesses) {
+            try {
+                if (proc && proc.pid && !proc.killed) {
+                    console.log(`[BatchTestManager] Terminating process PID: ${proc.pid}`);
+                    proc.kill('SIGKILL'); // 强制终止
+                }
+            } catch (error) {
+                console.log(`[BatchTestManager] Error terminating process: ${error.message}`);
+            }
+        }
+        
+        this.activeProcesses.clear();
+        console.log('[BatchTestManager] All processes terminated');
     }
 
     /**

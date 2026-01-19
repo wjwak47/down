@@ -100,7 +100,7 @@
     - 绕过yt-dlp（yt-dlp无法处理直接视频URL）
     - _Requirements: 1.1, 5.1_
 
-- [ ] 7. Checkpoint - 测试验证
+- [x] 7. Checkpoint - 测试验证
   - 手动测试抖音短链接
   - 手动测试抖音视频页URL
   - 验证元数据提取完整性（标题、作者、时长）
