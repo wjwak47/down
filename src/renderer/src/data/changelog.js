@@ -4,11 +4,11 @@ export const changelog = [
         date: '2026-01-16',
         changes: {
             fixed: [
-                '修复Mac应用无法打开的问题 - 恢复v1.1.5的构建配置',
-                '移除导致Gatekeeper严格阻止的hardenedRuntime配置'
+                'Fixed Mac app unable to open - reverted to v1.1.5 build configuration',
+                'Removed hardenedRuntime config that caused strict Gatekeeper blocking'
             ],
             improved: [
-                'Mac用户现在可以通过右键→打开来运行应用'
+                'Mac users can now run the app by right-click → Open'
             ]
         }
     },
@@ -17,15 +17,15 @@ export const changelog = [
         date: '2026-01-16',
         changes: {
             fixed: [
-                '修复打包后密码破解直接跳到CPU模式的问题 - 添加john工具到打包资源',
-                '修复CPU模式暂停恢复后从头开始的问题 - 添加cpuStartIdx进度保存',
-                '修复Mac系统sharp模块加载失败的问题 - 使用懒加载和错误处理',
-                '修复AI阶段暂停恢复后重复执行的问题 - 正确更新currentPhase',
-                '修复PassGPT临时文件路径问题 - 使用系统临时目录'
+                'Fixed password cracking jumping to CPU mode after packaging - added john tool to bundled resources',
+                'Fixed CPU mode resume starting from beginning - added cpuStartIdx progress saving',
+                'Fixed Mac system sharp module loading failure - using lazy loading and error handling',
+                'Fixed AI phase executing repeatedly after pause/resume - correctly update currentPhase',
+                'Fixed PassGPT temp file path issue - using system temp directory'
             ],
             improved: [
-                'CPU多线程破解支持断点续传',
-                '暂停恢复功能稳定性提升'
+                'CPU multi-threaded cracking now supports checkpoint resume',
+                'Pause/resume functionality stability improved'
             ]
         }
     },
@@ -34,25 +34,26 @@ export const changelog = [
         date: '2025-01-15',
         changes: {
             added: [
-                '批量测试功能 - 实现批量密码测试机制（批量大小：100个密码/批次）',
-                '使用7-Zip的stdin管道进行批量测试，减少进程创建开销',
-                '新增 BatchTestManager 类用于自动队列管理和结果解析'
+                'Batch testing feature - implemented batch password testing mechanism (batch size: 100 passwords/batch)',
+                'Using 7-Zip stdin pipe for batch testing, reducing process creation overhead',
+                'New BatchTestManager class for automatic queue management and result parsing'
             ],
             improved: [
-                '密码破解速度提升100倍 - 从10 pwd/s提升到1000 pwd/s',
-                'GPU攻击顺序优化 - 将键盘模式从Phase 5提前到Phase 2',
-                '常见密码（qwerty123、password123等）破解时间节省60%',
-                '规则库精简 - 从125+种规则精简到~50种高频规则',
-                '年份后缀减少84%，数字后缀减少43%，Leet speak减少40%',
-                '无效尝试减少75%，内存占用降低'
+                'Password cracking speed increased 100x - from 10 pwd/s to 1000 pwd/s',
+                'GPU attack order optimized - moved keyboard patterns from Phase 5 to Phase 2',
+                'Common passwords (qwerty123, password123, etc.) cracking time reduced by 60%',
+                'Rule library streamlined - from 125+ rules down to ~50 high-frequency rules',
+                'Year suffixes reduced by 84%, number suffixes reduced by 43%, Leet speak reduced by 40%',
+                'Invalid attempts reduced by 75%, memory usage decreased'
             ],
             fixed: [
-                '修复了单个密码测试效率低下的问题',
-                '修复了GPU攻击顺序不合理导致的时间浪费',
-                '修复了规则变换生成过多无效密码的问题'
+                'Fixed inefficient single password testing issue',
+                'Fixed unreasonable GPU attack order causing time waste',
+                'Fixed rule transformations generating too many invalid passwords'
             ]
         }
     },
+
     {
         version: '1.1.4',
         date: '2026-01-15',

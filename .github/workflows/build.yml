@@ -1,14 +1,12 @@
-name: Build Mac App
+name: Build Mac x64
 
 on:
   push:
     branches: [main, master]
-    tags:
-      - 'v*'
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 permissions:
-  contents: write  # Allow creating releases and uploading assets
+  contents: write
 
 jobs:
   build-mac:
@@ -39,29 +37,20 @@ jobs:
       - name: Download hashcat for macOS
         run: |
           mkdir -p resources/hashcat-mac
-          # Install hashcat via Homebrew (pre-compiled for macOS)
           brew install hashcat
-          # Find and copy hashcat binary
           HASHCAT_PATH=$(which hashcat)
-          echo "Hashcat found at: $HASHCAT_PATH"
           cp "$HASHCAT_PATH" resources/hashcat-mac/hashcat
           chmod +x resources/hashcat-mac/hashcat
-          # Copy OpenCL kernels (required for hashcat)
           HASHCAT_SHARE=$(brew --prefix hashcat)/share/hashcat
           if [ -d "$HASHCAT_SHARE" ]; then
             cp -r "$HASHCAT_SHARE"/* resources/hashcat-mac/
           fi
-          ls -la resources/hashcat-mac/
 
       - name: Download John the Ripper for macOS
         run: |
           mkdir -p resources/john-mac/run
-          # Use Homebrew to install john and copy the binaries
           brew install john-jumbo
-          # Find john installation path (works for both Intel and Apple Silicon)
           JOHN_PREFIX=$(brew --prefix john-jumbo)
-          echo "John installed at: $JOHN_PREFIX"
-          # Copy john tools from the correct location
           if [ -f "$JOHN_PREFIX/share/john/zip2john" ]; then
             cp "$JOHN_PREFIX/share/john/zip2john" resources/john-mac/run/
             cp "$JOHN_PREFIX/share/john/rar2john" resources/john-mac/run/ 2>/dev/null || true
@@ -69,114 +58,20 @@ jobs:
             cp "$JOHN_PREFIX/bin/zip2john" resources/john-mac/run/
             cp "$JOHN_PREFIX/bin/rar2john" resources/john-mac/run/ 2>/dev/null || true
           fi
-          # Also try system paths
-          cp /usr/local/bin/zip2john resources/john-mac/run/ 2>/dev/null || true
-          cp /usr/local/bin/rar2john resources/john-mac/run/ 2>/dev/null || true
-          # Download 7z2hashcat perl script
           curl -L https://raw.githubusercontent.com/philsmd/7z2hashcat/master/7z2hashcat.pl -o resources/john-mac/run/7z2hashcat.pl 2>/dev/null || true
           chmod +x resources/john-mac/run/* 2>/dev/null || true
-          ls -la resources/john-mac/run/
 
       - name: Install dependencies
         run: npm ci
 
-
-
-      - name: Package for macOS
+      - name: Package for macOS x64
         run: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Mac builds
+      - name: Upload Mac x64 DMG
         uses: actions/upload-artifact@v4
         with:
-          name: VideoDownloader-Mac
-          path: |
-            dist/*.dmg
-            dist/*.zip
+          name: ProFlow-Studio-Mac-x64
+          path: dist/*.dmg
           retention-days: 30
-
-  build-windows:
-    runs-on: windows-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Download yt-dlp for Windows
-        run: |
-          New-Item -ItemType Directory -Path resources/bin-win -Force
-          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "resources/bin-win/yt-dlp.exe"
-        shell: pwsh
-
-      - name: Download ffmpeg for Windows
-        run: |
-          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
-          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-temp
-          $ffmpegExe = Get-ChildItem -Path ffmpeg-temp -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
-          Copy-Item $ffmpegExe.FullName -Destination "resources/bin-win/ffmpeg.exe"
-        shell: pwsh
-
-      - name: Install dependencies
-        run: npm ci
-
-
-
-      - name: Package for Windows
-        run: npm run build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Windows Build
-        uses: actions/upload-artifact@v4
-        with:
-          name: VideoDownloader-Windows
-          path: |
-            dist/*.exe
-            dist/*.zip
-            dist/latest.yml
-          retention-days: 30
-
-  create-release:
-    needs: [build-mac, build-windows]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download Mac artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: VideoDownloader-Mac
-          path: ./artifacts/mac
-      
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: VideoDownloader-Windows
-          path: ./artifacts/windows
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            ./artifacts/mac/*.dmg
-            ./artifacts/mac/*.zip
-            ./artifacts/mac/latest-mac.yml
-            ./artifacts/windows/*.exe
-            ./artifacts/windows/*.zip
-            ./artifacts/windows/latest.yml
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          overwrite: true  # Allow updating existing releases
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -14,6 +14,7 @@ import { registerMediaConverter } from './modules/mediaConverter'
 import { registerDocumentConverter } from './modules/documentConverter'
 import { registerFileCompressor } from './modules/fileCompressor'
 import { registerWatermarkRemover } from './modules/watermarkRemover'
+
 import gpuDetector from './services/gpuDetector'
 import gpuSettings from './services/gpuSettings'
 
@@ -152,6 +153,7 @@ app.whenReady().then(() => {
     registerDocumentConverter();
     registerWatermarkRemover();
     registerFileCompressor();
+
 
     // Native Electron API instead of electronApp.setAppUserModelId
     app.setAppUserModelId('com.proflow.studio')

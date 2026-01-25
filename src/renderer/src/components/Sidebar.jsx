@@ -3,13 +3,13 @@ import { useGlobalTasks } from '../contexts/GlobalTaskContext';
 // 任务徽章组件
 const TaskBadge = ({ count, type }) => {
     if (count === 0) return null;
-    
+
     const colors = {
         download: 'bg-blue-500',
         crack: 'bg-violet-500',
         default: 'bg-primary'
     };
-    
+
     return (
         <span className={`ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full ${colors[type] || colors.default} text-white text-[10px] font-bold flex items-center justify-center`}>
             {count > 99 ? '99+' : count}
@@ -20,7 +20,7 @@ const TaskBadge = ({ count, type }) => {
 export const Sidebar = ({ currentPage, onNavigate }) => {
     const { derivedState } = useGlobalTasks();
     const { activeDownloadCount, activeCrackJobCount } = derivedState;
-    
+
     const navSections = [
         {
             title: 'Main',
@@ -44,6 +44,7 @@ export const Sidebar = ({ currentPage, onNavigate }) => {
                 { label: 'Compress', icon: 'folder_zip', page: 'file-compressor', badgeCount: activeCrackJobCount, badgeType: 'crack' },
             ]
         },
+
         {
             title: 'Other',
             items: [

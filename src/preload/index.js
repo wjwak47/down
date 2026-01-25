@@ -5,7 +5,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 const api = {
     // Clipboard API - use IPC to main process
     copyToClipboard: (text) => ipcRenderer.invoke('clipboard:copy', text),
-    
+
     getVideoInfo: (url, options) => ipcRenderer.invoke('get-video-info', url, options),
     getPreviewVideo: (videoInfo) => ipcRenderer.invoke('get-preview-video', videoInfo),
     getVideoProxyUrl: (videoInfo) => ipcRenderer.invoke('get-video-proxy-url', videoInfo),
@@ -60,7 +60,7 @@ const api = {
     onZipComplete: (callback) => ipcRenderer.on('zip:complete', (_, data) => callback(data)),
     offZipProgress: () => ipcRenderer.removeAllListeners('zip:progress'),
     offZipComplete: () => ipcRenderer.removeAllListeners('zip:complete'),
-    
+
     // Password Cracking API
     zipSelectDictionary: () => ipcRenderer.invoke('zip:select-dictionary'),
     zipCheckGpu: () => ipcRenderer.invoke('zip:check-gpu'),
@@ -149,7 +149,24 @@ const api = {
     onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_, data) => callback(data)),
     appOffUpdateListeners: () => {
         ipcRenderer.removeAllListeners('update-status');
-    }
+    },
+
+    // Douyin Toolkit APIs
+    douyinExtractUrls: (text) => ipcRenderer.invoke('douyin:extract-urls', text),
+    douyinValidateUrl: (url) => ipcRenderer.invoke('douyin:validate-url', url),
+    douyinParseLink: (link) => ipcRenderer.invoke('douyin:parse-link', link),
+    douyinBatchParse: (links) => ipcRenderer.invoke('douyin:batch-parse', links),
+    douyinCheckHealth: () => ipcRenderer.invoke('douyin:check-health'),
+    douyinUpdateConfig: (config) => ipcRenderer.invoke('douyin:update-config', config),
+    onDouyinParseProgress: (callback) => ipcRenderer.on('douyin:parse-progress', (_, data) => callback(data)),
+    douyinOffListeners: () => {
+        ipcRenderer.removeAllListeners('douyin:parse-progress');
+    },
+
+    // AI Service APIs
+    aiChat: (data) => ipcRenderer.invoke('ai:chat', data),
+    aiAnalyze: (data) => ipcRenderer.invoke('ai:analyze', data),
+    settingsSave: (settings) => ipcRenderer.invoke('settings:save', settings)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

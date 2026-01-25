@@ -8,6 +8,7 @@ import FileCompressor from './pages/FileCompressor';
 import WatermarkRemover from './components/WatermarkRemover';
 import AudioTranscriber from './pages/AudioTranscriber';
 import Changelog from './pages/Changelog';
+
 import Settings from './components/Settings';
 import { ToastProvider } from './components/Toast';
 import { GlobalTaskProvider } from './contexts/GlobalTaskContext';
@@ -50,6 +51,7 @@ function App() {
             'media-converter': 'Media Converter',
             'document-converter': 'Document Converter',
             'file-compressor': 'File Compressor',
+
             'whats-new': 'Archive',
             'settings': 'Settings'
         };
@@ -135,7 +137,7 @@ function App() {
                                     {/* Main Content */}
                                     <div className="flex-1 overflow-auto">
                                         <div className="max-w-4xl mx-auto px-8 py-8 space-y-6">
-                                            
+
                                             {/* Quick Action Cards - 2x2 Grid */}
                                             <div className="grid grid-cols-2 gap-4">
                                                 {[
@@ -144,7 +146,7 @@ function App() {
                                                     { icon: 'description', title: 'Document Convert', desc: 'PDF, Word, Excel conversion', color: 'text-[#4CAF50]', bg: 'bg-green-50 dark:bg-green-900/20', page: 'document-converter' },
                                                     { icon: 'folder_zip', title: 'File Compress', desc: 'Compress and extract archives', color: 'text-[#FF9800]', bg: 'bg-orange-50 dark:bg-orange-900/20', page: 'file-compressor' }
                                                 ].map(action => (
-                                                    <div 
+                                                    <div
                                                         key={action.page}
                                                         onClick={() => setCurrentPage(action.page)}
                                                         className="p-5 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 cursor-pointer hover:border-slate-200 dark:hover:border-slate-700 hover:shadow-sm transition-all group"
@@ -159,25 +161,24 @@ function App() {
                                             </div>
 
                                             {/* Drop Zone */}
-                                            <div 
+                                            <div
                                                 onDrop={handleDashboardDrop}
                                                 onDragOver={handleDashboardDragOver}
                                                 onDragLeave={handleDashboardDragLeave}
-                                                className={`rounded-2xl border-2 border-dashed transition-all p-8 text-center ${
-                                                    isDragging ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-slate-200 dark:border-slate-700'
-                                                }`}
+                                                className={`rounded-2xl border-2 border-dashed transition-all p-8 text-center ${isDragging ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-slate-200 dark:border-slate-700'
+                                                    }`}
                                             >
                                                 {/* Icon */}
                                                 <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
                                                     <span className="material-symbols-outlined text-slate-400 text-2xl">upload_file</span>
                                                 </div>
-                                                
+
                                                 {/* Title */}
                                                 <h3 className="text-base font-semibold text-slate-700 dark:text-slate-200 mb-1">
                                                     {isDragging ? 'Drop files here...' : 'Drop files here'}
                                                 </h3>
                                                 <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Files will be routed to the right tool automatically</p>
-                                                
+
                                                 {/* Colorful File Type Tags */}
                                                 <div className="flex gap-3 justify-center mb-5">
                                                     <span className="text-[#2196F3] text-xs font-semibold">Video</span>
@@ -185,7 +186,7 @@ function App() {
                                                     <span className="text-[#E53935] text-xs font-semibold">Document</span>
                                                     <span className="text-[#FF9800] text-xs font-semibold">Archive</span>
                                                 </div>
-                                                
+
                                                 {/* URL Input */}
                                                 <div className="max-w-md mx-auto">
                                                     <div className="flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
@@ -255,6 +256,8 @@ function App() {
 
                             {/* What's New / Archive */}
                             {currentPage === 'whats-new' && <Changelog />}
+
+
 
                             {/* Settings */}
                             {currentPage === 'settings' && (
